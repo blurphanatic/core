@@ -16,3 +16,14 @@
 ### Notes
 - These changes were necessary to make the forked component work as a separate integration
 - Component is now properly recognized by Home Assistant as "weatherbitch"
+
+## [1.0.1] - 2025-07-20
+
+### Updated
+- Pulled latest changes from upstream dev branch
+- Re-applied weatherbitch compatibility fixes after merge
+- Maintained all Home Assistant compatibility changes
+
+### Technical
+- Fetched from: https://github.com/blurphanatic/core.git (branch: dev)
+- Component source: homeassistant/components/weatherbitch/
