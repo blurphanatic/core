@@ -94,6 +94,8 @@ SENSOR_TYPES: tuple[MetOfficeSensorDescription, ...] = (
     MetOfficeSensorDescription(
         key="uvIndex",
         name="UV Index",
+        device_class=SensorDeviceClass.ILLUMINANCE,
+        state_class=SensorStateClass.MEASUREMENT,
     ),
     MetOfficeSensorDescription(
         key="visibility",

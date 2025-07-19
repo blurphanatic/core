@@ -25,6 +25,9 @@ UPDATE_INTERVAL = timedelta(minutes=15)
 
 DEFAULT_TIMESTEPS = "hourly"
 
+# Base URL for the Met Office DataHub point forecast API
+BASE_URL = "https://data.hub.api.metoffice.gov.uk/sitespecific/v0/point/"
+
 METOFFICE_WEATHER_CODE_MAP: dict[int, str] = {
     0: ATTR_CONDITION_CLEAR_NIGHT,
     1: ATTR_CONDITION_SUNNY,
@@ -54,7 +57,7 @@ METOFFICE_WEATHER_CODE_MAP: dict[int, str] = {
     25: ATTR_CONDITION_SNOWY,
     26: ATTR_CONDITION_SNOWY,
     27: ATTR_CONDITION_SNOWY,
-    28: ATTR_CONDITION_LIGHTNING_RAINY,
-    29: ATTR_CONDITION_LIGHTNING_RAINY,
+    28: ATTR_CONDITION_LIGHTNING,
+    29: ATTR_CONDITION_LIGHTNING,
     30: ATTR_CONDITION_LIGHTNING,
 }
