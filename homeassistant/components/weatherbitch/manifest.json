@@ -1,6 +1,6 @@
 {
-  "domain": "weatherbitch",
-  "name": "WeatherBitch",
+  "domain": "metoffice",
+  "name": "Met Office",
   "codeowners": ["@MikeyProtocolSavage"],
   "config_flow": true,
   "documentation": "https://github.com/yourusername/weatherbitch",
