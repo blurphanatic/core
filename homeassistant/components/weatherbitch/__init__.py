@@ -1,37 +1,75 @@
-"""The Met Office integration."""
+"""Met Office DataHub integration."""
 
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_CLIENT_ID, CONF_CLIENT_SECRET, Platform
+from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import DOMAIN
-from .coordinator import MetOfficeDataUpdateCoordinator
+from .api import ApiError, MetOfficeApiClient
+from .const import CONF_API_KEY, DEFAULT_TIMESTEPS, DOMAIN, UPDATE_INTERVAL
 
 _LOGGER = logging.getLogger(__name__)
-_LOGGER.warning("WeatherBitch is running, bitch, buckle the fuck up! Mikey is in control.")
 
 PLATFORMS = [Platform.SENSOR, Platform.WEATHER]
 
 
+class MetOfficeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Class to manage fetching Met Office data."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        client: MetOfficeApiClient,
+        latitude: float,
+        longitude: float,
+    ) -> None:
+        """Initialize the coordinator."""
+        self.client = client
+        self.latitude = latitude
+        self.longitude = longitude
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=DOMAIN,
+            update_interval=UPDATE_INTERVAL,
+        )
+
+    async def _async_update_data(self) -> dict[str, Any]:
+        """Fetch data from the API."""
+        try:
+            data = await self.client.get_point_forecast(
+                self.latitude, self.longitude, DEFAULT_TIMESTEPS
+            )
+        except ApiError as err:
+            raise UpdateFailed(f"Error fetching data: {err}") from err
+
+        if not data:
+            _LOGGER.warning("No forecast data received")
+            raise UpdateFailed("No forecast data received or unexpected format")
+
+        return data
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up a Met Office entry."""
-    coordinator = MetOfficeDataUpdateCoordinator(
-        hass,
-        client_id=entry.data[CONF_CLIENT_ID],
-        client_secret=entry.data[CONF_CLIENT_SECRET],
-        site_id=entry.data["site_id"],
-        site_name=entry.data["site_name"],
-    )
-    await coordinator.async_config_entry_first_refresh()
+    """Set up Met Office from a config entry."""
+    api_key = entry.data[CONF_API_KEY]
+    latitude = entry.data[CONF_LATITUDE]
+    longitude = entry.data[CONF_LONGITUDE]
+
+    client = MetOfficeApiClient(hass, api_key)
+    coordinator = MetOfficeDataUpdateCoordinator(hass, client, latitude, longitude)
+
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+
+    await coordinator.async_config_entry_first_refresh()
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    _LOGGER.info("Setting up Met Office Bitch for site %s", coordinator.site_name)
+
     return True
 
 
@@ -41,13 +79,3 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
     return unload_ok
-
-
-def get_device_info(site_id: str, site_name: str) -> DeviceInfo:
-    """Return device registry information."""
-    return DeviceInfo(
-        entry_type=dr.DeviceEntryType.SERVICE,
-        identifiers={(DOMAIN, site_id)},
-        manufacturer="Met Office",
-        name=f"Met Office {site_name}",
-    )

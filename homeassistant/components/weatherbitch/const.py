@@ -1,46 +1,38 @@
-"""Met Office constants."""
+"""Constants for the Met Office integration."""
 
 from __future__ import annotations
 
 from datetime import timedelta
 
-DOMAIN = "weatherbitch"
+DOMAIN = "metoffice"
 
-CONF_CLIENT_ID = "client_id"
-CONF_CLIENT_SECRET = "client_secret"
+CONF_API_KEY = "api_key"
+CONF_LATITUDE = "latitude"
+CONF_LONGITUDE = "longitude"
 
-BASE_URL = "https://data-proxy.api.metoffice.gov.uk/val/wxfcs"
+UPDATE_INTERVAL = timedelta(minutes=15)
+DEFAULT_TIMESTEPS = "hourly"
 
-DEFAULT_SCAN_INTERVAL = timedelta(minutes=15)
-
-VISIBILITY_MAP: dict[str, str] = {
-    "VP": "Very Poor (<1 km)",
-    "PO": "Poor (1-4 km)",
-    "MO": "Moderate (4-10 km)",
-    "GO": "Good (10-20 km)",
-    "VG": "Very Good (20-40 km)",
-    "EX": "Excellent (>40 km)",
-}
-
-W_CODE_CONDITION_MAP: dict[int, str] = {
+METOFFICE_WEATHER_CODE_MAP: dict[int, str] = {
     0: "clear-night",
     1: "sunny",
     2: "partlycloudy",
     3: "partlycloudy",
+    4: "sunny",
     5: "fog",
     6: "fog",
     7: "cloudy",
     8: "cloudy",
-    9: "pouring",
-    10: "pouring",
+    9: "rainy",
+    10: "rainy",
     11: "rainy",
     12: "rainy",
-    13: "pouring",
-    14: "pouring",
-    15: "pouring",
-    16: "snowy-rainy",
-    17: "snowy-rainy",
-    18: "snowy-rainy",
+    13: "rainy",
+    14: "rainy",
+    15: "rainy",
+    16: "snowy",
+    17: "snowy",
+    18: "snowy",
     19: "hail",
     20: "hail",
     21: "hail",
@@ -50,7 +42,7 @@ W_CODE_CONDITION_MAP: dict[int, str] = {
     25: "snowy",
     26: "snowy",
     27: "snowy",
-    28: "lightning-rainy",
-    29: "lightning-rainy",
+    28: "lightning",
+    29: "lightning",
     30: "lightning",
 }

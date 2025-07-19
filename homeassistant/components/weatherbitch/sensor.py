@@ -1,150 +1,121 @@
-"""Met Office sensor platform."""
-
-# pylint: disable=hass-enforce-class-module
+"""Sensor entities for the Met Office integration."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
-    SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
+    DEGREE,
     PERCENTAGE,
+    UnitOfLength,
     UnitOfPressure,
     UnitOfSpeed,
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import get_device_info
+from . import MetOfficeDataUpdateCoordinator
 from .const import DOMAIN
-from .coordinator import MetOfficeDataUpdateCoordinator
 
 
 @dataclass(frozen=True)
-class MetOfficeSensorEntityDescription(SensorEntityDescription):
-    """Describe Met Office sensor."""
+class MetOfficeSensorDescription(SensorEntityDescription):
+    """Describe a Met Office sensor."""
 
-    value_key: str
+    key: str
 
 
-SENSOR_DESCRIPTIONS: tuple[MetOfficeSensorEntityDescription, ...] = (
-    MetOfficeSensorEntityDescription(
-        key="temperature",
-        value_key="temperature",
+SENSOR_TYPES: tuple[MetOfficeSensorDescription, ...] = (
+    MetOfficeSensorDescription(
+        key="screenTemperature",
         name="Temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
-        state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
     ),
-    MetOfficeSensorEntityDescription(
-        key="feels_like_temperature",
-        value_key="feels_like_temperature",
+    MetOfficeSensorDescription(
+        key="feelsLikeTemperature",
         name="Feels Like Temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
-        state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
     ),
-    MetOfficeSensorEntityDescription(
-        key="humidity",
-        value_key="humidity",
-        name="Humidity",
-        device_class=SensorDeviceClass.HUMIDITY,
-        state_class=SensorStateClass.MEASUREMENT,
+    MetOfficeSensorDescription(
+        key="probOfPrecipitation",
+        name="Probability of Precipitation",
         native_unit_of_measurement=PERCENTAGE,
     ),
-    MetOfficeSensorEntityDescription(
-        key="wind_speed",
-        value_key="wind_speed",
+    MetOfficeSensorDescription(
+        key="windDirectionFrom10m",
+        name="Wind Direction",
+        native_unit_of_measurement=DEGREE,
+    ),
+    MetOfficeSensorDescription(
+        key="windSpeed10m",
         name="Wind Speed",
         device_class=SensorDeviceClass.WIND_SPEED,
-        state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfSpeed.METERS_PER_SECOND,
     ),
-    MetOfficeSensorEntityDescription(
-        key="wind_gust",
-        value_key="wind_gust",
+    MetOfficeSensorDescription(
+        key="windGust10m",
         name="Wind Gust",
         device_class=SensorDeviceClass.WIND_SPEED,
-        state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfSpeed.METERS_PER_SECOND,
     ),
-    MetOfficeSensorEntityDescription(
-        key="wind_direction",
-        value_key="wind_direction",
-        name="Wind Direction",
-        device_class=SensorDeviceClass.WIND_DIRECTION,
-        state_class=SensorStateClass.MEASUREMENT_ANGLE,
+    MetOfficeSensorDescription(
+        key="screenRelativeHumidity",
+        name="Humidity",
+        device_class=SensorDeviceClass.HUMIDITY,
+        native_unit_of_measurement=PERCENTAGE,
     ),
-    MetOfficeSensorEntityDescription(
-        key="pressure",
-        value_key="pressure",
-        name="Pressure",
+    MetOfficeSensorDescription(
+        key="mslp",
+        name="Mean Sea Level Pressure",
         device_class=SensorDeviceClass.PRESSURE,
-        state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfPressure.HPA,
     ),
-    MetOfficeSensorEntityDescription(
-        key="visibility",
-        value_key="visibility",
-        name="Visibility",
-    ),
-    MetOfficeSensorEntityDescription(
-        key="uv_index",
-        value_key="uv_index",
+    MetOfficeSensorDescription(
+        key="uvIndex",
         name="UV Index",
-        state_class=SensorStateClass.MEASUREMENT,
     ),
-    MetOfficeSensorEntityDescription(
-        key="precipitation_probability",
-        value_key="precipitation_probability",
-        name="Probability of Precipitation",
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=PERCENTAGE,
+    MetOfficeSensorDescription(
+        key="visibility",
+        name="Visibility",
+        device_class=SensorDeviceClass.DISTANCE,
+        native_unit_of_measurement=UnitOfLength.METERS,
     ),
 )
 
 
-class MetOfficeEntity(CoordinatorEntity[MetOfficeDataUpdateCoordinator]):
-    """Base Met Office entity."""
-
-    _attr_has_entity_name = True
-
-    def __init__(self, coordinator: MetOfficeDataUpdateCoordinator) -> None:
-        """Initialize the entity."""
-        super().__init__(coordinator)
-        self._attr_device_info = get_device_info(
-            coordinator.site_id, coordinator.site_name
-        )
-
-
-class MetOfficeSensor(MetOfficeEntity, SensorEntity):
+class MetOfficeSensor(CoordinatorEntity[MetOfficeDataUpdateCoordinator], SensorEntity):
     """Representation of a Met Office sensor."""
 
-    entity_description: MetOfficeSensorEntityDescription
+    entity_description: MetOfficeSensorDescription
 
     def __init__(
         self,
         coordinator: MetOfficeDataUpdateCoordinator,
-        description: MetOfficeSensorEntityDescription,
+        description: MetOfficeSensorDescription,
+        config_entry: ConfigEntry,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self.entity_description = description
-        self._attr_unique_id = f"{coordinator.site_id}_{description.key}"
+        self._attr_name = f"{config_entry.title} {description.name}"
+        self._attr_unique_id = f"{config_entry.entry_id}_{description.key}"
 
     @property
-    def native_value(self) -> StateType:
-        """Return the sensor value."""
-        return self.coordinator.data.get(self.entity_description.value_key)
+    def native_value(self) -> Any:
+        """Return the sensor value from the latest data."""
+        forecast = self.coordinator.data.get("forecasts", [{}])[0]
+        return forecast.get(self.entity_description.key)
 
 
 async def async_setup_entry(
@@ -152,11 +123,12 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up sensors."""
+    """Set up Met Office sensors based on a config entry."""
     coordinator: MetOfficeDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+
     async_add_entities(
         [
-            MetOfficeSensor(coordinator, description)
-            for description in SENSOR_DESCRIPTIONS
+            MetOfficeSensor(coordinator, description, entry)
+            for description in SENSOR_TYPES
         ]
     )

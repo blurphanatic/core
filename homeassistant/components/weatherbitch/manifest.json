@@ -1,5 +1,5 @@
 {
-  "domain": "weatherbitch",
+  "domain": "metoffice",
   "name": "WeatherBitch",
   "codeowners": ["@MikeyProtocolSavage"],
   "config_flow": true,
