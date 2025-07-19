@@ -88,4 +88,27 @@ class MetOfficeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning("No forecast data received or unexpected format: %s", data)
             raise UpdateFailed("No forecast data received or unexpected format")
 
+        forecasts = data.get("forecasts")
+        if not isinstance(forecasts, list) or not forecasts:
+            _LOGGER.warning("Forecast list missing or empty: %s", forecasts)
+            raise UpdateFailed("Missing forecast entries")
+
+        expected_keys = {
+            "time",
+            "screenTemperature",
+            "feelsLikeTemperature",
+            "probOfPrecipitation",
+            "windDirectionFrom10m",
+            "windSpeed10m",
+            "windGust10m",
+            "screenRelativeHumidity",
+            "mslp",
+            "uvIndex",
+            "visibility",
+            "significantWeatherCode",
+        }
+        missing = [key for key in expected_keys if key not in forecasts[0]]
+        if missing:
+            _LOGGER.warning("Missing expected forecast keys: %s", missing)
+
         return data
