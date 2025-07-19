@@ -2,151 +2,122 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 import logging
 from typing import Any
 
-import datapoint
-from datapoint.exceptions import APIException
-import datapoint.Manager
-from requests import HTTPError
+import aiohttp
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
-from homeassistant.const import CONF_API_KEY, CONF_LATITUDE, CONF_LONGITUDE, CONF_NAME
-from homeassistant.core import HomeAssistant
+from homeassistant.const import CONF_CLIENT_ID, CONF_CLIENT_SECRET
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import DOMAIN
+from .const import BASE_URL, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-
-async def validate_input(
-    hass: HomeAssistant, latitude: float, longitude: float, api_key: str
-) -> dict[str, Any]:
-    """Validate that the user input allows us to connect to DataPoint.
-
-    Data has the keys from DATA_SCHEMA with values provided by the user.
-    """
-    errors = {}
-    connection = datapoint.Manager.Manager(api_key=api_key)
-
-    try:
-        forecast = await hass.async_add_executor_job(
-            connection.get_forecast,
-            latitude,
-            longitude,
-            "daily",
-            False,
-        )
-
-    except (HTTPError, APIException) as err:
-        if isinstance(err, HTTPError) and err.response.status_code == 401:
-            errors["base"] = "invalid_auth"
-        else:
-            errors["base"] = "cannot_connect"
-    except Exception:
-        _LOGGER.exception("Unexpected exception")
-        errors["base"] = "unknown"
-    else:
-        return {"site_name": forecast.name, "errors": errors}
-
-    return {"errors": errors}
+SITE_LIST_URL = f"{BASE_URL}/all/json/sitelist"
 
 
 class MetOfficeConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Met Office weather integration."""
+    """Handle a config flow for the Met Office integration."""
 
     VERSION = 1
+
+    def __init__(self) -> None:
+        """Initialize the config flow."""
+        self.client_id: str | None = None
+        self.client_secret: str | None = None
+        self.sites: list[dict[str, Any]] | None = None
+
+    async def _async_get_sites(
+        self, client_id: str, client_secret: str
+    ) -> list[dict[str, Any]]:
+        """Fetch available sites from the API."""
+        headers = {
+            "x-ibm-client-id": client_id,
+            "x-ibm-client-secret": client_secret,
+            "accept": "application/json",
+        }
+        session = async_get_clientsession(self.hass)
+        try:
+            resp = await session.get(
+                SITE_LIST_URL, headers=headers, timeout=aiohttp.ClientTimeout(total=10)
+            )
+        except (TimeoutError, aiohttp.ClientError) as err:
+            _LOGGER.error("Connection error: %s", err)
+            raise CannotConnect from err
+        if resp.status in (401, 403):
+            raise InvalidAuth
+        if resp.status != 200:
+            raise CannotConnect
+        data = await resp.json()
+        sites = data.get("Locations", {}).get("Location")
+        if not isinstance(sites, list):
+            raise CannotConnect
+        return sites
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle the initial step."""
-        errors = {}
+        """Handle the initial step where credentials are entered."""
+        errors: dict[str, str] = {}
         if user_input is not None:
-            await self.async_set_unique_id(
-                f"{user_input[CONF_LATITUDE]}_{user_input[CONF_LONGITUDE]}"
-            )
-            self._abort_if_unique_id_configured()
-
-            result = await validate_input(
-                self.hass,
-                latitude=user_input[CONF_LATITUDE],
-                longitude=user_input[CONF_LONGITUDE],
-                api_key=user_input[CONF_API_KEY],
-            )
-
-            errors = result["errors"]
-
-            if not errors:
-                user_input[CONF_NAME] = result["site_name"]
-                return self.async_create_entry(
-                    title=user_input[CONF_NAME], data=user_input
+            self.client_id = user_input[CONF_CLIENT_ID]
+            self.client_secret = user_input[CONF_CLIENT_SECRET]
+            try:
+                self.sites = await self._async_get_sites(
+                    self.client_id, self.client_secret
                 )
-
-        data_schema = vol.Schema(
-            {
-                vol.Required(CONF_API_KEY): str,
-                vol.Required(
-                    CONF_LATITUDE, default=self.hass.config.latitude
-                ): cv.latitude,
-                vol.Required(
-                    CONF_LONGITUDE, default=self.hass.config.longitude
-                ): cv.longitude,
-            },
-        )
-
+            except InvalidAuth:
+                errors["base"] = "invalid_auth"
+            except CannotConnect:
+                errors["base"] = "cannot_connect"
+            if not errors:
+                return await self.async_step_location()
         return self.async_show_form(
             step_id="user",
-            data_schema=data_schema,
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_CLIENT_ID): str,
+                    vol.Required(CONF_CLIENT_SECRET): str,
+                }
+            ),
             errors=errors,
         )
 
-    async def async_step_reauth(
-        self, entry_data: Mapping[str, Any]
-    ) -> ConfigFlowResult:
-        """Perform reauth upon an API authentication error."""
-        return await self.async_step_reauth_confirm()
-
-    async def async_step_reauth_confirm(
+    async def async_step_location(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Dialog that informs the user that reauth is required."""
-        errors = {}
-
-        entry = self._get_reauth_entry()
+        """Select a forecast site from the returned list."""
+        errors: dict[str, str] = {}
+        assert self.sites
+        options = {site["id"]: site["name"] for site in self.sites}
         if user_input is not None:
-            result = await validate_input(
-                self.hass,
-                latitude=entry.data[CONF_LATITUDE],
-                longitude=entry.data[CONF_LONGITUDE],
-                api_key=user_input[CONF_API_KEY],
+            site_id = user_input["site"]
+            site_name = options[site_id]
+            await self.async_set_unique_id(site_id)
+            self._abort_if_unique_id_configured()
+            return self.async_create_entry(
+                title=site_name,
+                data={
+                    CONF_CLIENT_ID: self.client_id,
+                    CONF_CLIENT_SECRET: self.client_secret,
+                    "site_id": site_id,
+                    "site_name": site_name,
+                },
             )
-
-            errors = result["errors"]
-
-            if not errors:
-                return self.async_update_reload_and_abort(
-                    self._get_reauth_entry(),
-                    data_updates=user_input,
-                )
-
         return self.async_show_form(
-            step_id="reauth_confirm",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_API_KEY): str,
-                }
-            ),
-            description_placeholders={
-                "docs_url": ("https://www.home-assistant.io/integrations/metoffice")
-            },
+            step_id="location",
+            data_schema=vol.Schema({vol.Required("site"): vol.In(options)}),
             errors=errors,
         )
 
 
 class CannotConnect(HomeAssistantError):
     """Error to indicate we cannot connect."""
+
+
+class InvalidAuth(HomeAssistantError):
+    """Error to indicate invalid authentication."""
