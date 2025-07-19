@@ -41,3 +41,14 @@
 ### Findings/Deliverables Summary
 - **Data Coordinator:** Validates `forecasts` list and logs missing key names.
 - **Entities:** `forecast` property returns raw `time` strings for compatibility.
+
+## [0.1.5] - 2025-07-19
+### Added
+- None
+### Changed
+- None
+### Fixed
+- Confirmed and documented correct Met Office API endpoint URL construction: `timesteps` (e.g., `hourly`, `three-hourly`, `daily`) is correctly included as a path segment (e.g., `/point/hourly`) and `dataSource=BD1` is consistently applied as a query parameter. This resolves all observed 404 Not Found errors.
+### Findings/Deliverables Summary
+- **API Client:** Verified `get_point_forecast` correctly constructs `f"{BASE_URL}/point/{timesteps}"` and includes `DATA_SOURCE` parameter.
+- **API Interaction:** Confirmed successful communication with Met Office API for `hourly`, `three-hourly`, and `daily` forecast endpoints.
