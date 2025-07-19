@@ -1,8 +1,0 @@
-{
-  "domain": "metoffice",
-  "name": "WeatherBitch",
-  "codeowners": ["@MikeyProtocolSavage"],
-  "config_flow": true,
-  "documentation": "https://github.com/yourusername/weatherbitch",
-  "iot_class": "cloud_polling"
-}
