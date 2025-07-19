@@ -30,3 +30,14 @@
 ### Findings/Deliverables Summary
 - **Constants:** `METOFFICE_WEATHER_CODE_MAP` now references HA constants directly and includes `BASE_URL`.
 - **Entities:** Removed unused coordinator module and ensured sensors and weather entity handle missing data gracefully.
+
+## [0.1.2] - 2025-07-19
+### Added
+- Warning logs for missing forecast entries and keys in coordinator.
+### Changed
+- None
+### Fixed
+- Forecast data now exposes ISO timestamp strings rather than datetime objects.
+### Findings/Deliverables Summary
+- **Data Coordinator:** Validates `forecasts` list and logs missing key names.
+- **Entities:** `forecast` property returns raw `time` strings for compatibility.
