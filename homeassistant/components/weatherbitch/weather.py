@@ -1,19 +1,18 @@
-"""Met Office weather entity."""
+"""Weather entity for the Met Office integration."""
 
 # pylint: disable=hass-enforce-class-module
 
 from __future__ import annotations
 
-from homeassistant.components.weather import WeatherEntity
+from homeassistant.components.weather import Forecast, WeatherEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfPressure, UnitOfSpeed, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import get_device_info
-from .const import DOMAIN, W_CODE_CONDITION_MAP
-from .coordinator import MetOfficeDataUpdateCoordinator
+from . import MetOfficeDataUpdateCoordinator, get_device_info
+from .const import DOMAIN, METOFFICE_WEATHER_CODE_MAP
 
 
 class MetOfficeEntity(CoordinatorEntity[MetOfficeDataUpdateCoordinator]):
@@ -22,10 +21,10 @@ class MetOfficeEntity(CoordinatorEntity[MetOfficeDataUpdateCoordinator]):
     _attr_has_entity_name = True
 
     def __init__(self, coordinator: MetOfficeDataUpdateCoordinator) -> None:
-        """Initialize base entity."""
+        """Initialize entity."""
         super().__init__(coordinator)
         self._attr_device_info = get_device_info(
-            coordinator.site_id, coordinator.site_name
+            coordinator.latitude, coordinator.longitude, coordinator.config_entry.title
         )
 
 
@@ -33,59 +32,70 @@ class MetOfficeWeather(MetOfficeEntity, WeatherEntity):
     """Representation of Met Office weather data."""
 
     _attr_name = None
-    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
-    _attr_native_pressure_unit = UnitOfPressure.HPA
-    _attr_native_wind_speed_unit = UnitOfSpeed.METERS_PER_SECOND
+    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_pressure_unit = UnitOfPressure.HPA
+    _attr_wind_speed_unit = UnitOfSpeed.METERS_PER_SECOND
 
     def __init__(self, coordinator: MetOfficeDataUpdateCoordinator) -> None:
-        """Initialize the weather entity."""
+        """Initialize weather entity."""
         super().__init__(coordinator)
-        self._attr_unique_id = coordinator.site_id
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_weather"
 
     @property
     def condition(self) -> str | None:
         """Return current weather condition."""
-        code = self.coordinator.data.get("weather")
-        return (
-            W_CODE_CONDITION_MAP.get(code, "unknown")
-            if isinstance(code, int)
-            else "unknown"
-        )
+        current = self.coordinator.data.get("forecasts", [{}])[0]
+        code = current.get("significantWeatherCode")
+        return METOFFICE_WEATHER_CODE_MAP.get(code, "unknown")
 
     @property
-    def native_temperature(self) -> float | None:
-        """Return current temperature."""
-        return self.coordinator.data.get("temperature")
+    def temperature(self) -> float | None:
+        """Return temperature."""
+        current = self.coordinator.data.get("forecasts", [{}])[0]
+        return current.get("screenTemperature")
 
     @property
-    def native_pressure(self) -> float | None:
-        """Return current pressure."""
-        return self.coordinator.data.get("pressure")
+    def pressure(self) -> float | None:
+        """Return pressure."""
+        current = self.coordinator.data.get("forecasts", [{}])[0]
+        return current.get("mslp")
 
     @property
     def humidity(self) -> int | None:
-        """Return current humidity."""
-        return self.coordinator.data.get("humidity")
+        """Return humidity."""
+        current = self.coordinator.data.get("forecasts", [{}])[0]
+        return current.get("screenRelativeHumidity")
 
     @property
-    def uv_index(self) -> int | None:
-        """Return current UV index."""
-        return self.coordinator.data.get("uv_index")
+    def wind_speed(self) -> float | None:
+        """Return wind speed."""
+        current = self.coordinator.data.get("forecasts", [{}])[0]
+        return current.get("windSpeed10m")
 
     @property
-    def native_wind_speed(self) -> float | None:
-        """Return current wind speed."""
-        return self.coordinator.data.get("wind_speed")
+    def wind_bearing(self) -> float | None:
+        """Return wind bearing."""
+        current = self.coordinator.data.get("forecasts", [{}])[0]
+        return current.get("windDirectionFrom10m")
 
     @property
-    def wind_bearing(self) -> str | None:
-        """Return current wind bearing."""
-        return self.coordinator.data.get("wind_direction")
-
-    @property
-    def native_wind_gust_speed(self) -> float | None:
-        """Return current wind gust speed."""
-        return self.coordinator.data.get("wind_gust")
+    def forecast(self) -> list[Forecast]:
+        """Return the forecast in Home Assistant format."""
+        forecasts = self.coordinator.data.get("forecasts", [])
+        return [
+            {
+                "datetime": item.get("time"),
+                "condition": METOFFICE_WEATHER_CODE_MAP.get(
+                    item.get("significantWeatherCode"), "unknown"
+                ),
+                "temperature": item.get("screenTemperature"),
+                "humidity": item.get("screenRelativeHumidity"),
+                "pressure": item.get("mslp"),
+                "wind_speed": item.get("windSpeed10m"),
+                "wind_bearing": item.get("windDirectionFrom10m"),
+            }
+            for item in forecasts
+        ]
 
 
 async def async_setup_entry(
