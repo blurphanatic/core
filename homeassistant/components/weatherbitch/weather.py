@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from homeassistant.components.weather import Forecast, WeatherEntity
+from homeassistant.util import dt as dt_util
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfPressure, UnitOfSpeed, UnitOfTemperature
 from homeassistant.core import HomeAssistant
@@ -84,7 +85,7 @@ class MetOfficeWeather(MetOfficeEntity, WeatherEntity):
         forecasts = self.coordinator.data.get("forecasts", [])
         return [
             {
-                "datetime": item.get("time"),
+                "datetime": dt_util.parse_datetime(item.get("time")),
                 "condition": METOFFICE_WEATHER_CODE_MAP.get(
                     item.get("significantWeatherCode"), "unknown"
                 ),

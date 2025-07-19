@@ -12,6 +12,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.httpx_client import get_async_client
 
+from .const import BASE_URL
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -25,7 +27,7 @@ class MetOfficeApiClient:
     def __init__(self, hass: HomeAssistant, api_key: str) -> None:
         """Initialize the API client."""
         self.api_key = api_key
-        self.base_url = "https://data.hub.api.metoffice.gov.uk/sitespecific/v0/point/"
+        self.base_url = BASE_URL
         self.client = get_async_client(hass)
 
     def _get_headers(self) -> dict[str, str]:

@@ -3,6 +3,6 @@
   "name": "Met Office",
   "codeowners": ["@MikeyProtocolSavage"],
   "config_flow": true,
-  "documentation": "https://github.com/yourusername/weatherbitch",
+  "documentation": "https://github.com/MikeyProtocolSavage/homeassistant-metoffice",
   "iot_class": "cloud_polling"
 }

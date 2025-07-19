@@ -15,3 +15,18 @@
 - **Entities:** Sensors and weather entities extract data from `forecasts` list; includes mapping via `METOFFICE_WEATHER_CODE_MAP`.
 - **Robustness:** All API data access uses `.get()`; network and JSON errors are caught and logged.
 - **Ambiguity Resolutions:** Forecast property exposes all entries from returned list using the assumed `forecasts` key.
+
+## [0.1.1] - 2025-07-19
+### Added
+- Translation file with updated configuration title.
+- BASE_URL constant for the point forecast API.
+### Changed
+- Corrected weather code mapping to use HA condition constants.
+- Documentation link updated in manifest.
+- UV index sensor now includes device and state classes.
+### Fixed
+- API client now references the BASE_URL constant.
+- Forecast timestamps parsed via `dt_util.parse_datetime`.
+### Findings/Deliverables Summary
+- **Constants:** `METOFFICE_WEATHER_CODE_MAP` now references HA constants directly and includes `BASE_URL`.
+- **Entities:** Removed unused coordinator module and ensured sensors and weather entity handle missing data gracefully.
