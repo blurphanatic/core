@@ -70,3 +70,17 @@
 - **Data Coordinator:** Adapted to use dynamic `timesteps` and `update_interval`. Implemented and integrated the 24-hour API call counter.
 - **API Client:** Enhanced logging to provide deep insight into API interactions for debugging and monitoring.
 - **User Control:** Provides users with critical control over API usage to manage daily limits.
+## [0.1.8] - 2025-07-20
+### Added
+- All Met Office fields now mapped into Home Assistant forecast objects including dew point, min/max temperature, visibility, UV index, precipitation and snow amounts, and wind gust.
+- Raw API data preserved under `raw` in each forecast.
+### Changed
+- `MetOfficeDataUpdateCoordinator` returns `{"current": ..., "forecast": [...]}` with optional future-only filtering.
+- `MetOfficeWeather` and sensors updated to consume new data structure.
+### Fixed
+- Consistent unit conversions for pressure.
+### Findings/Deliverables Summary
+- **Forecast Schema:** Expanded to include all API fields and raw payload.
+- **Entities:** Simplified mapping via coordinator-provided data.
+- **Testing:** Added unit test validating parsing and future filtering.
+

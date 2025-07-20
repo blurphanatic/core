@@ -44,58 +44,38 @@ class MetOfficeWeather(MetOfficeEntity, WeatherEntity):
     @property
     def condition(self) -> str | None:
         """Return current weather condition."""
-        current = self.coordinator.data.get("forecasts", [{}])[0]
-        code = current.get("significantWeatherCode")
+        code = self.coordinator.data.get("current", {}).get("weather_code")
         return METOFFICE_WEATHER_CODE_MAP.get(code, "unknown")
 
     @property
     def temperature(self) -> float | None:
         """Return temperature."""
-        current = self.coordinator.data.get("forecasts", [{}])[0]
-        return current.get("screenTemperature")
+        return self.coordinator.data.get("current", {}).get("temperature")
 
     @property
     def pressure(self) -> float | None:
         """Return pressure."""
-        current = self.coordinator.data.get("forecasts", [{}])[0]
-        return current.get("mslp")
+        return self.coordinator.data.get("current", {}).get("pressure")
 
     @property
     def humidity(self) -> int | None:
         """Return humidity."""
-        current = self.coordinator.data.get("forecasts", [{}])[0]
-        return current.get("screenRelativeHumidity")
+        return self.coordinator.data.get("current", {}).get("humidity")
 
     @property
     def wind_speed(self) -> float | None:
         """Return wind speed."""
-        current = self.coordinator.data.get("forecasts", [{}])[0]
-        return current.get("windSpeed10m")
+        return self.coordinator.data.get("current", {}).get("wind_speed")
 
     @property
     def wind_bearing(self) -> float | None:
         """Return wind bearing."""
-        current = self.coordinator.data.get("forecasts", [{}])[0]
-        return current.get("windDirectionFrom10m")
+        return self.coordinator.data.get("current", {}).get("wind_bearing")
 
     @property
     def forecast(self) -> list[Forecast]:
         """Return the forecast in Home Assistant format."""
-        forecasts = self.coordinator.data.get("forecasts", [])
-        return [
-            {
-                "datetime": item.get("time"),
-                "condition": METOFFICE_WEATHER_CODE_MAP.get(
-                    item.get("significantWeatherCode"), "unknown"
-                ),
-                "temperature": item.get("screenTemperature"),
-                "humidity": item.get("screenRelativeHumidity"),
-                "pressure": item.get("mslp"),
-                "wind_speed": item.get("windSpeed10m"),
-                "wind_bearing": item.get("windDirectionFrom10m"),
-            }
-            for item in forecasts
-        ]
+        return self.coordinator.data.get("forecast", [])
 
 
 async def async_setup_entry(

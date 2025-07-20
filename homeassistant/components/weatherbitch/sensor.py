@@ -104,6 +104,18 @@ SENSOR_TYPES: tuple[MetOfficeSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfLength.METERS,
     ),
+    MetOfficeSensorDescription(
+        key="dew_point",
+        name="Dew Point",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+    ),
+    MetOfficeSensorDescription(
+        key="precipitation_amount",
+        name="Precipitation Amount",
+        native_unit_of_measurement=UnitOfLength.MILLIMETERS,
+    ),
 )
 
 
@@ -139,7 +151,7 @@ class MetOfficeSensor(MetOfficeEntity, SensorEntity):
     @property
     def native_value(self) -> StateType:
         """Return sensor value from coordinator data."""
-        current = self.coordinator.data.get("forecasts", [{}])[0]
+        current = self.coordinator.data.get("current", {})
         return current.get(self.entity_description.key)
 
 
