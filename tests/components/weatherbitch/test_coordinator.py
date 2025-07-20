@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, Mock, patch
 
 from homeassistant.components.weatherbitch import MetOfficeDataUpdateCoordinator
-from homeassistant.components.weatherbitch.const import DOMAIN
+from homeassistant.components.weatherbitch.const import API_CALL_COUNTER_KEY, DOMAIN
 from homeassistant.core import HomeAssistant
 
 from tests.common import MockConfigEntry
@@ -93,6 +93,13 @@ async def test_update_data_future_filter(hass: HomeAssistant) -> None:
     coordinator = MetOfficeDataUpdateCoordinator(
         hass, client, 0.0, 0.0, "hourly", timedelta(minutes=15), entry
     )
+    hass.data[DOMAIN] = {
+        API_CALL_COUNTER_KEY: {
+            "count": 0,
+            "last_reset_date": datetime(2024, 1, 1, tzinfo=UTC).date(),
+        }
+    }
+    coordinator.config_entry = entry
 
     with patch(
         "homeassistant.util.dt.utcnow",

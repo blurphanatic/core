@@ -75,7 +75,8 @@
 - All Met Office fields now mapped into Home Assistant forecast objects including dew point, min/max temperature, visibility, UV index, precipitation and snow amounts, and wind gust.
 - Raw API data preserved under `raw` in each forecast.
 ### Changed
-- `MetOfficeDataUpdateCoordinator` returns `{"current": ..., "forecast": [...]}` with optional future-only filtering.
+- `MetOfficeDataUpdateCoordinator` returns structured `{"current": ..., "forecast": [...]}`.
+- Removed legacy `{"forecasts": ...}` output.
 - `MetOfficeWeather` and sensors updated to consume new data structure.
 ### Fixed
 - Consistent unit conversions for pressure.
