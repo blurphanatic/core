@@ -16,11 +16,20 @@ from homeassistant.components.weather import (
     ATTR_CONDITION_SUNNY,
 )
 
-DOMAIN = "metoffice"
+DOMAIN = "weatherbitch"
 
 CONF_API_KEY = "api_key"
 
 UPDATE_INTERVAL = timedelta(minutes=15)
+
+CONF_TIMESTEPS = "timesteps"
+TIMESTEP_OPTIONS = ["hourly", "three-hourly", "daily"]
+
+CONF_UPDATE_INTERVAL = "update_interval"
+MIN_UPDATE_INTERVAL = timedelta(minutes=15)
+MAX_UPDATE_INTERVAL = timedelta(hours=6)
+
+API_CALL_COUNTER_KEY = f"{DOMAIN}_api_call_counter"
 
 DEFAULT_TIMESTEPS = "hourly"
 

@@ -1,6 +1,7 @@
 {
-  "domain": "metoffice",
-  "name": "Met Office",
+  "domain": "weatherbitch",
+  "name": "Weather Bitch",
+  "version": "0.1.7",
   "codeowners": ["@MikeyProtocolSavage"],
   "config_flow": true,
   "documentation": "https://github.com/MikeyProtocolSavage/homeassistant-metoffice",

@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 import logging
 from typing import Any
 
@@ -15,7 +16,13 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import ApiError, MetOfficeApiClient
-from .const import CONF_API_KEY, DEFAULT_TIMESTEPS, DOMAIN, UPDATE_INTERVAL
+from .const import (
+    API_CALL_COUNTER_KEY,
+    CONF_API_KEY,
+    CONF_TIMESTEPS,
+    CONF_UPDATE_INTERVAL,
+    DOMAIN,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -27,13 +34,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     api_key = entry.data[CONF_API_KEY]
     latitude = entry.data[CONF_LATITUDE]
     longitude = entry.data[CONF_LONGITUDE]
+    timesteps = entry.data[CONF_TIMESTEPS]
+    update_interval_minutes = entry.data[CONF_UPDATE_INTERVAL]
+    update_interval_td = timedelta(minutes=update_interval_minutes)
 
     client = MetOfficeApiClient(hass, api_key)
     coordinator = MetOfficeDataUpdateCoordinator(
-        hass, client, latitude, longitude, entry
+        hass, client, latitude, longitude, timesteps, update_interval_td, entry
     )
+
+    hass.data.setdefault(DOMAIN, {})
+    if API_CALL_COUNTER_KEY not in hass.data[DOMAIN]:
+        hass.data[DOMAIN][API_CALL_COUNTER_KEY] = {
+            "count": 0,
+            "last_reset_date": datetime.now(UTC).date(),
+        }
+
+    hass.data[DOMAIN][entry.entry_id] = coordinator
     await coordinator.async_config_entry_first_refresh()
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
@@ -65,21 +83,45 @@ class MetOfficeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         client: MetOfficeApiClient,
         latitude: float,
         longitude: float,
+        timesteps: str,
+        update_interval_td: timedelta,
         config_entry: ConfigEntry,
     ) -> None:
-        """Initialize the coordinator."""
+        """Initialize the coordinator.
+
+        Args:
+            hass: Home Assistant instance.
+            client: API client used to retrieve forecasts.
+            latitude: Latitude of forecast location.
+            longitude: Longitude of forecast location.
+            timesteps: Forecast frequency (hourly, three-hourly, daily).
+            update_interval_td: Update interval for coordinator.
+            config_entry: Config entry associated with this coordinator.
+        """
         self.client = client
         self.latitude = latitude
         self.longitude = longitude
+        self.timesteps = timesteps
         self.config_entry: ConfigEntry = config_entry
-        super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=UPDATE_INTERVAL)
+        super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=update_interval_td)
         self.data: dict[str, Any] = {}
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch latest data from Met Office."""
         try:
             data = await self.client.get_point_forecast(
-                self.latitude, self.longitude, DEFAULT_TIMESTEPS
+                self.latitude, self.longitude, self.timesteps
+            )
+            api_counter = self.hass.data[DOMAIN][API_CALL_COUNTER_KEY]
+            current_date = datetime.now(UTC).date()
+            if current_date != api_counter["last_reset_date"]:
+                api_counter["count"] = 0
+                api_counter["last_reset_date"] = current_date
+            api_counter["count"] += 1
+            _LOGGER.info(
+                "Met Office API call successful for %s. Total calls today: %d",
+                self.config_entry.title,
+                api_counter["count"],
             )
         except ApiError as err:
             raise UpdateFailed(f"Error fetching data: {err}") from err

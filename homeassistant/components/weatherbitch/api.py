@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any
 
 import httpx
@@ -34,13 +35,28 @@ class MetOfficeApiClient:
         """Return headers required for the API request."""
         return {"apikey": self.api_key, "accept": "application/json"}
 
-    async def _make_request(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Perform a GET request to the API with given parameters."""
+    async def _make_request(self, url: str, params: dict[str, Any]) -> dict[str, Any]:
+        """Make a GET request to the API and return the JSON response."""
+        _LOGGER.debug(
+            "Met Office API Request: URL=%s, Headers=%s, Params=%s",
+            url,
+            self._get_headers(),
+            params,
+        )
+        start_time = time.monotonic()
         try:
             response = await self.client.get(
-                self.base_url, headers=self._get_headers(), params=params
+                url, headers=self._get_headers(), params=params
             )
             response.raise_for_status()
+            end_time = time.monotonic()
+            duration_ms = round((end_time - start_time) * 1000)
+            _LOGGER.info(
+                "Met Office API call to %s successful in %d ms",
+                url.split("?")[0],
+                duration_ms,
+            )
+            _LOGGER.debug("Met Office API Response Body: %s", response.text)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 401:
                 _LOGGER.error("Authentication failed: %s", exc.response.text)
@@ -75,7 +91,7 @@ class MetOfficeApiClient:
             "includeLocationName": "TRUE",
         }
         try:
-            return await self._make_request(params)
+            return await self._make_request(self.base_url, params)
         except ApiError as err:
             _LOGGER.error("Point forecast request failed: %s", err)
             raise
