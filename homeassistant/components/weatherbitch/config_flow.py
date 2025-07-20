@@ -12,7 +12,17 @@ from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE, CONF_NAME
 from homeassistant.exceptions import ConfigEntryAuthFailed
 
 from .api import ApiError, MetOfficeApiClient
-from .const import CONF_API_KEY, DOMAIN
+from .const import (
+    CONF_API_KEY,
+    CONF_TIMESTEPS,
+    CONF_UPDATE_INTERVAL,
+    DEFAULT_TIMESTEPS,
+    DOMAIN,
+    MAX_UPDATE_INTERVAL,
+    MIN_UPDATE_INTERVAL,
+    TIMESTEP_OPTIONS,
+    UPDATE_INTERVAL,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,6 +43,8 @@ class MetOfficeConfigFlow(ConfigFlow, domain=DOMAIN):
             latitude = user_input.get(CONF_LATITUDE, self.hass.config.latitude)
             longitude = user_input.get(CONF_LONGITUDE, self.hass.config.longitude)
             name = user_input[CONF_NAME]
+            timesteps = user_input[CONF_TIMESTEPS]
+            update_interval = user_input[CONF_UPDATE_INTERVAL]
             client = MetOfficeApiClient(self.hass, api_key)
             try:
                 await client.get_point_forecast(latitude, longitude)
@@ -47,6 +59,8 @@ class MetOfficeConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_API_KEY: api_key,
                         CONF_LATITUDE: latitude,
                         CONF_LONGITUDE: longitude,
+                        CONF_TIMESTEPS: timesteps,
+                        CONF_UPDATE_INTERVAL: update_interval,
                     },
                 )
 
@@ -62,6 +76,19 @@ class MetOfficeConfigFlow(ConfigFlow, domain=DOMAIN):
                     vol.Required(
                         CONF_LONGITUDE, default=self.hass.config.longitude
                     ): float,
+                    vol.Required(CONF_TIMESTEPS, default=DEFAULT_TIMESTEPS): vol.In(
+                        TIMESTEP_OPTIONS
+                    ),
+                    vol.Required(
+                        CONF_UPDATE_INTERVAL,
+                        default=int(UPDATE_INTERVAL.total_seconds() // 60),
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(
+                            min=int(MIN_UPDATE_INTERVAL.total_seconds() // 60),
+                            max=int(MAX_UPDATE_INTERVAL.total_seconds() // 60),
+                        ),
+                    ),
                 }
             ),
             errors=errors,
