@@ -16,7 +16,7 @@ from homeassistant.components.weather import (
     ATTR_CONDITION_SUNNY,
 )
 
-DOMAIN = "metoffice"
+DOMAIN = "weatherbitch"
 
 CONF_API_KEY = "api_key"
 
