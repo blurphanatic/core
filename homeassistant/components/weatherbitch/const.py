@@ -16,7 +16,7 @@ from homeassistant.components.weather import (
     ATTR_CONDITION_SUNNY,
 )
 
-DOMAIN = "weatherbitch"
+DOMAIN = "weatherbitch" # Retaining "weatherbitch" as per user override
 
 CONF_API_KEY = "api_key"
 
@@ -33,15 +33,18 @@ API_CALL_COUNTER_KEY = f"{DOMAIN}_api_call_counter"
 
 DEFAULT_TIMESTEPS = "hourly"
 
-# Base URL for the Met Office DataHub point forecast API
-BASE_URL = "https://data.hub.api.metoffice.gov.uk/sitespecific/v0/point/"
+# Base URL for the Met Office DataHub point forecast API (CORRECTED BASE_URL)
+BASE_URL = "https://data.hub.api.metoffice.gov.uk/sitespecific/v0"
+
+# Mandatory data source parameter for the point forecast API (ADDED)
+DATA_SOURCE = "BD1"
 
 METOFFICE_WEATHER_CODE_MAP: dict[int, str] = {
     0: ATTR_CONDITION_CLEAR_NIGHT,
     1: ATTR_CONDITION_SUNNY,
     2: ATTR_CONDITION_PARTLYCLOUDY,
     3: ATTR_CONDITION_PARTLYCLOUDY,
-    4: ATTR_CONDITION_SUNNY,
+    4: ATTR_CONDITION_SUNNY, # This code is often unused or deprecated, mapping to sunny
     5: ATTR_CONDITION_FOG,
     6: ATTR_CONDITION_FOG,
     7: ATTR_CONDITION_CLOUDY,
@@ -65,7 +68,7 @@ METOFFICE_WEATHER_CODE_MAP: dict[int, str] = {
     25: ATTR_CONDITION_SNOWY,
     26: ATTR_CONDITION_SNOWY,
     27: ATTR_CONDITION_SNOWY,
-    28: ATTR_CONDITION_LIGHTNING,
-    29: ATTR_CONDITION_LIGHTNING,
-    30: ATTR_CONDITION_LIGHTNING,
+    28: ATTR_CONDITION_LIGHTNING, # Mapped to generic lightning as per directive
+    29: ATTR_CONDITION_LIGHTNING, # Mapped to generic lightning as per directive
+    30: ATTR_CONDITION_LIGHTNING, # Mapped to generic lightning as per directive
 }

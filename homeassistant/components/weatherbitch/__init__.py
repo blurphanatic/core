@@ -12,7 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import ApiError, MetOfficeApiClient
@@ -109,9 +109,12 @@ class MetOfficeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch latest data from Met Office."""
         try:
+            # Use self.timesteps for the API call
             data = await self.client.get_point_forecast(
                 self.latitude, self.longitude, self.timesteps
             )
+
+            # --- API Call Counter Logic (Keep this, it was correct) ---
             api_counter = self.hass.data[DOMAIN][API_CALL_COUNTER_KEY]
             current_date = datetime.now(UTC).date()
             if current_date != api_counter["last_reset_date"]:
@@ -123,34 +126,63 @@ class MetOfficeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.config_entry.title,
                 api_counter["count"],
             )
+            # --- End API Call Counter Logic ---
+
         except ApiError as err:
             raise UpdateFailed(f"Error fetching data: {err}") from err
 
-        if not data or "forecasts" not in data:
-            _LOGGER.warning("No forecast data received or unexpected format: %s", data)
-            raise UpdateFailed("No forecast data received or unexpected format")
+        # --- CRITICAL LIVE API RESPONSE PARSING (RE-ENGINEER THIS SECTION) ---
+        features = data.get("features")
+        if not isinstance(features, list) or not features:
+            _LOGGER.warning("API response 'features' list missing or empty: %s", features)
+            raise UpdateFailed("Missing features in API response")
 
-        forecasts = data.get("forecasts")
-        if not isinstance(forecasts, list) or not forecasts:
-            _LOGGER.warning("Forecast list missing or empty: %s", forecasts)
-            raise UpdateFailed("Missing forecast entries")
+        properties = features[0].get("properties")
+        if not isinstance(properties, dict):
+            _LOGGER.warning("API response 'properties' missing or not a dict: %s", properties)
+            raise UpdateFailed("Missing properties in API response")
 
+        time_series = properties.get("timeSeries")
+        if not isinstance(time_series, list) or not time_series:
+            _LOGGER.warning("API response 'timeSeries' list missing or empty: %s", time_series)
+            raise UpdateFailed("Missing timeSeries in API response")
+
+        # Process each forecast item for unit conversion and key unification
+        processed_forecasts = []
+        for forecast_item in time_series:
+            processed_item = forecast_item.copy() # Work on a copy to avoid modifying original API response
+
+            # Convert mslp from Pascals (Pa) to hectoPascals (hPa)
+            mslp_pa = processed_item.get("mslp")
+            if mslp_pa is not None:
+                processed_item["mslp"] = mslp_pa / 100.0 # Convert to hPa
+
+            # Unify feelsLikeTemperature key (hourly uses 'feelsLikeTemperature', three-hourly/daily use 'feelsLikeTemp')
+            if "feelsLikeTemp" in processed_item and "feelsLikeTemperature" not in processed_item:
+                processed_item["feelsLikeTemperature"] = processed_item["feelsLikeTemp"]
+                # Optionally, del processed_item["feelsLikeTemp"] if we want to strictly enforce one key
+
+            processed_forecasts.append(processed_item)
+
+        # Validate expected keys in the first processed forecast entry (current conditions)
         expected_keys = {
             "time",
             "screenTemperature",
-            "feelsLikeTemperature",
+            "feelsLikeTemperature", # Now unified
             "probOfPrecipitation",
             "windDirectionFrom10m",
             "windSpeed10m",
             "windGust10m",
             "screenRelativeHumidity",
-            "mslp",
+            "mslp", # Now expected in hPa
             "uvIndex",
             "visibility",
             "significantWeatherCode",
         }
-        missing = [key for key in expected_keys if key not in forecasts[0]]
+        # Check against the first processed item
+        missing = [key for key in expected_keys if key not in processed_forecasts[0]]
         if missing:
-            _LOGGER.warning("Missing expected forecast keys: %s", missing)
+            _LOGGER.warning("Missing expected forecast keys in first entry: %s", missing)
 
-        return data
+        # Return the processed list of forecast objects, wrapped under "forecasts" key
+        return {"forecasts": processed_forecasts}
