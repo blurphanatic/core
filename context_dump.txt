@@ -3,145 +3,26 @@
 .
 ├── __init__.py
 ├── AGENTS.md
+├── api.py
+├── CHANGELOG.md
 ├── config_flow.py
 ├── const.py
-├── coordinator.py
 ├── manifest.json
 ├── sensor.py
 ├── strings.json
+├── translations
+│   └── en.json
 └── weather.py
 
-1 directory, 9 files
+2 directories, 11 files
 
 --- 📂 END OF DIRECTORY STRUCTURE 📂 ---
-
---------------------------------------------------------------------------------
---- FILE: ./coordinator.py
---------------------------------------------------------------------------------
-
-"""Data coordinator for the Met Office integration."""
-
-from __future__ import annotations
-
-from datetime import UTC, datetime, timedelta
-import logging
-from typing import Any
-
-import aiohttp
-
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-
-from .const import BASE_URL, DEFAULT_SCAN_INTERVAL, VISIBILITY_MAP
-
-_LOGGER = logging.getLogger(__name__)
-
-
-class MetOfficeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
-    """Class to manage fetching Met Office data."""
-
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        *,
-        client_id: str,
-        client_secret: str,
-        site_id: str,
-        site_name: str,
-    ) -> None:
-        """Initialize coordinator."""
-        self.client_id = client_id
-        self.client_secret = client_secret
-        self.site_id = site_id
-        self.site_name = site_name
-        self.session = async_get_clientsession(hass)
-        super().__init__(
-            hass,
-            _LOGGER,
-            name=f"MetOffice Coordinator for {site_name}",
-            update_interval=DEFAULT_SCAN_INTERVAL,
-        )
-
-    async def _async_update_data(self) -> dict[str, Any]:
-        """Fetch data from Met Office."""
-        url = f"{BASE_URL}/all/json/{self.site_id}?res=hourly"
-        headers = {
-            "x-ibm-client-id": self.client_id,
-            "x-ibm-client-secret": self.client_secret,
-            "accept": "application/json",
-        }
-        _LOGGER.debug("Requesting %s", url)
-        try:
-            async with self.session.get(
-                url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)
-            ) as resp:
-                if resp.status != 200:
-                    raise UpdateFailed(f"HTTP error: {resp.status}")
-                data = await resp.json()
-        except (TimeoutError, aiohttp.ClientError) as err:
-            raise UpdateFailed(err) from err
-
-        try:
-            location = data.get("SiteRep", {}).get("DV", {}).get("Location")
-            period = location.get("Period", [])[0]
-            rep = period.get("Rep", [])[0]
-        except (AttributeError, IndexError) as err:
-            raise UpdateFailed("Unexpected response structure") from err
-
-        date_str = period.get("value")
-        minute_str = rep.get("$")
-        if date_str is None or minute_str is None:
-            raise UpdateFailed("Missing time information")
-
-        try:
-            base_date = datetime.strptime(date_str, "%Y-%m-%dZ")
-            minutes = int(minute_str)
-            timestamp = (base_date + timedelta(minutes=minutes)).replace(tzinfo=UTC)
-        except ValueError as err:
-            raise UpdateFailed("Invalid time data") from err
-
-        def _to_float(value: Any) -> float | None:
-            try:
-                return float(value) if value is not None else None
-            except (TypeError, ValueError):
-                return None
-
-        def _to_int(value: Any) -> int | None:
-            try:
-                return int(value) if value is not None else None
-            except (TypeError, ValueError):
-                return None
-
-        def _mph_to_ms(value: Any) -> float | None:
-            speed = _to_float(value)
-            return round(speed * 0.44704, 2) if speed is not None else None
-
-        visibility_code = rep.get("V")
-        visibility = (
-            VISIBILITY_MAP.get(visibility_code, "Unknown") if visibility_code else None
-        )
-
-        return {
-            "time": timestamp,
-            "wind_direction": rep.get("D"),
-            "feels_like_temperature": _to_float(rep.get("F")),
-            "wind_gust": _mph_to_ms(rep.get("G")),
-            "humidity": _to_int(rep.get("H")),
-            "precipitation_probability": _to_int(rep.get("P")),
-            "wind_speed": _mph_to_ms(rep.get("S")),
-            "temperature": _to_float(rep.get("T")),
-            "visibility": visibility,
-            "weather": _to_int(rep.get("W")),
-            "uv_index": _to_int(rep.get("U")),
-            "pressure": _to_float(rep.get("Pp")),
-        }
 
 --------------------------------------------------------------------------------
 --- FILE: ./sensor.py
 --------------------------------------------------------------------------------
 
-"""Met Office sensor platform."""
+"""Sensor platform for the Met Office integration."""
 
 # pylint: disable=hass-enforce-class-module
 
@@ -157,7 +38,9 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
+    DEGREE,
     PERCENTAGE,
+    UnitOfLength,
     UnitOfPressure,
     UnitOfSpeed,
     UnitOfTemperature,
@@ -167,127 +50,121 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import get_device_info
+from . import MetOfficeDataUpdateCoordinator, get_device_info
 from .const import DOMAIN
-from .coordinator import MetOfficeDataUpdateCoordinator
 
 
 @dataclass(frozen=True)
-class MetOfficeSensorEntityDescription(SensorEntityDescription):
-    """Describe Met Office sensor."""
+class MetOfficeSensorDescription(SensorEntityDescription):
+    """Describes Met Office sensor."""
 
-    value_key: str
+    key: str
 
 
-SENSOR_DESCRIPTIONS: tuple[MetOfficeSensorEntityDescription, ...] = (
-    MetOfficeSensorEntityDescription(
-        key="temperature",
-        value_key="temperature",
+SENSOR_TYPES: tuple[MetOfficeSensorDescription, ...] = (
+    MetOfficeSensorDescription(
+        key="screenTemperature",
         name="Temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
     ),
-    MetOfficeSensorEntityDescription(
-        key="feels_like_temperature",
-        value_key="feels_like_temperature",
+    MetOfficeSensorDescription(
+        key="feelsLikeTemperature",
         name="Feels Like Temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
     ),
-    MetOfficeSensorEntityDescription(
-        key="humidity",
-        value_key="humidity",
-        name="Humidity",
-        device_class=SensorDeviceClass.HUMIDITY,
+    MetOfficeSensorDescription(
+        key="probOfPrecipitation",
+        name="Probability of Precipitation",
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
     ),
-    MetOfficeSensorEntityDescription(
-        key="wind_speed",
-        value_key="wind_speed",
+    MetOfficeSensorDescription(
+        key="windDirectionFrom10m",
+        name="Wind Direction",
+        native_unit_of_measurement=DEGREE,
+    ),
+    MetOfficeSensorDescription(
+        key="windSpeed10m",
         name="Wind Speed",
         device_class=SensorDeviceClass.WIND_SPEED,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfSpeed.METERS_PER_SECOND,
     ),
-    MetOfficeSensorEntityDescription(
-        key="wind_gust",
-        value_key="wind_gust",
+    MetOfficeSensorDescription(
+        key="windGust10m",
         name="Wind Gust",
         device_class=SensorDeviceClass.WIND_SPEED,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfSpeed.METERS_PER_SECOND,
     ),
-    MetOfficeSensorEntityDescription(
-        key="wind_direction",
-        value_key="wind_direction",
-        name="Wind Direction",
-        device_class=SensorDeviceClass.WIND_DIRECTION,
-        state_class=SensorStateClass.MEASUREMENT_ANGLE,
+    MetOfficeSensorDescription(
+        key="screenRelativeHumidity",
+        name="Humidity",
+        device_class=SensorDeviceClass.HUMIDITY,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=PERCENTAGE,
     ),
-    MetOfficeSensorEntityDescription(
-        key="pressure",
-        value_key="pressure",
-        name="Pressure",
+    MetOfficeSensorDescription(
+        key="mslp",
+        name="Mean Sea Level Pressure",
         device_class=SensorDeviceClass.PRESSURE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfPressure.HPA,
     ),
-    MetOfficeSensorEntityDescription(
-        key="visibility",
-        value_key="visibility",
-        name="Visibility",
-    ),
-    MetOfficeSensorEntityDescription(
-        key="uv_index",
-        value_key="uv_index",
+    MetOfficeSensorDescription(
+        key="uvIndex",
         name="UV Index",
+        device_class=SensorDeviceClass.ILLUMINANCE,
         state_class=SensorStateClass.MEASUREMENT,
     ),
-    MetOfficeSensorEntityDescription(
-        key="precipitation_probability",
-        value_key="precipitation_probability",
-        name="Probability of Precipitation",
+    MetOfficeSensorDescription(
+        key="visibility",
+        name="Visibility",
+        device_class=SensorDeviceClass.DISTANCE,
         state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=PERCENTAGE,
+        native_unit_of_measurement=UnitOfLength.METERS,
     ),
 )
 
 
 class MetOfficeEntity(CoordinatorEntity[MetOfficeDataUpdateCoordinator]):
-    """Base Met Office entity."""
+    """Base entity for Met Office sensors."""
 
     _attr_has_entity_name = True
 
     def __init__(self, coordinator: MetOfficeDataUpdateCoordinator) -> None:
-        """Initialize the entity."""
+        """Initialize entity."""
         super().__init__(coordinator)
         self._attr_device_info = get_device_info(
-            coordinator.site_id, coordinator.site_name
+            coordinator.latitude, coordinator.longitude, coordinator.config_entry.title
         )
 
 
 class MetOfficeSensor(MetOfficeEntity, SensorEntity):
     """Representation of a Met Office sensor."""
 
-    entity_description: MetOfficeSensorEntityDescription
+    entity_description: MetOfficeSensorDescription
 
     def __init__(
         self,
         coordinator: MetOfficeDataUpdateCoordinator,
-        description: MetOfficeSensorEntityDescription,
+        description: MetOfficeSensorDescription,
     ) -> None:
-        """Initialize the sensor."""
+        """Initialize sensor."""
         super().__init__(coordinator)
         self.entity_description = description
-        self._attr_unique_id = f"{coordinator.site_id}_{description.key}"
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_{description.key}"
+        self._attr_name = f"{coordinator.config_entry.title} {description.name}"
 
     @property
     def native_value(self) -> StateType:
-        """Return the sensor value."""
-        return self.coordinator.data.get(self.entity_description.value_key)
+        """Return sensor value from coordinator data."""
+        current = self.coordinator.data.get("forecasts", [{}])[0]
+        return current.get(self.entity_description.key)
 
 
 async def async_setup_entry(
@@ -295,35 +172,108 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up sensors."""
+    """Set up Met Office sensors."""
     coordinator: MetOfficeDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
     async_add_entities(
-        [
-            MetOfficeSensor(coordinator, description)
-            for description in SENSOR_DESCRIPTIONS
-        ]
+        [MetOfficeSensor(coordinator, description) for description in SENSOR_TYPES]
     )
+
+--------------------------------------------------------------------------------
+--- FILE: ./CHANGELOG.md
+--------------------------------------------------------------------------------
+
+## [0.1.0] - 2025-01-01
+### Added
+- Implemented MetOfficeApiClient with methods for point-based probabilistic forecasts and robust error handling.
+- Created config flow prompting for API key, latitude, longitude, and name.
+- Implemented DataUpdateCoordinator fetching hourly forecasts via new API.
+- Added sensor and weather entities mapping API fields to Home Assistant attributes with defensive parsing.
+### Changed
+- Switched integration domain to `metoffice` and updated manifest.
+### Fixed
+- N/A
+### Findings/Deliverables Summary
+- **API Client:** Added `api.py` providing asynchronous HTTP interactions with proper headers and error handling.
+- **Config Flow:** Simplified to single step validating API key and coordinates.
+- **Data Coordinator:** Fetches forecasts from the v0/point endpoint; warns on unexpected data.
+- **Entities:** Sensors and weather entities extract data from `forecasts` list; includes mapping via `METOFFICE_WEATHER_CODE_MAP`.
+- **Robustness:** All API data access uses `.get()`; network and JSON errors are caught and logged.
+- **Ambiguity Resolutions:** Forecast property exposes all entries from returned list using the assumed `forecasts` key.
+
+## [0.1.1] - 2025-07-19
+### Added
+- Translation file with updated configuration title.
+- BASE_URL constant for the point forecast API.
+### Changed
+- Corrected weather code mapping to use HA condition constants.
+- Documentation link updated in manifest.
+- UV index sensor now includes device and state classes.
+### Fixed
+- API client now references the BASE_URL constant.
+- Forecast timestamps parsed via `dt_util.parse_datetime`.
+### Findings/Deliverables Summary
+- **Constants:** `METOFFICE_WEATHER_CODE_MAP` now references HA constants directly and includes `BASE_URL`.
+- **Entities:** Removed unused coordinator module and ensured sensors and weather entity handle missing data gracefully.
+
+## [0.1.2] - 2025-07-19
+### Added
+- Warning logs for missing forecast entries and keys in coordinator.
+### Changed
+- None
+### Fixed
+- Forecast data now exposes ISO timestamp strings rather than datetime objects.
+### Findings/Deliverables Summary
+- **Data Coordinator:** Validates `forecasts` list and logs missing key names.
+- **Entities:** `forecast` property returns raw `time` strings for compatibility.
+
+## [0.1.5] - 2025-07-19
+### Added
+- None
+### Changed
+- None
+### Fixed
+- Confirmed and documented correct Met Office API endpoint URL construction: `timesteps` (e.g., `hourly`, `three-hourly`, `daily`) is correctly included as a path segment (e.g., `/point/hourly`) and `dataSource=BD1` is consistently applied as a query parameter. This resolves all observed 404 Not Found errors.
+### Findings/Deliverables Summary
+- **API Client:** Verified `get_point_forecast` correctly constructs `f"{BASE_URL}/point/{timesteps}"` and includes `DATA_SOURCE` parameter.
+- **API Interaction:** Confirmed successful communication with Met Office API for `hourly`, `three-hourly`, and `daily` forecast endpoints.
+
+## [0.1.7] - 2025-07-20
+### Added
+- Configurable forecast frequency (hourly, three-hourly, daily) via setup flow.
+- Configurable update interval (in minutes) via setup flow.
+- Debug-level logging for full API requests and raw responses.
+- Info-level logging for API call duration in milliseconds.
+- 24-hour rolling counter for successful API calls, logged at info level.
+- `API_CALL_COUNTER_KEY` constant.
+### Changed
+- `MetOfficeDataUpdateCoordinator` now uses configurable update interval and timesteps.
+- `MetOfficeApiClient._make_request` includes detailed request/response logging and timing.
+- API call counter logic implemented in coordinator.
+### Findings/Deliverables Summary
+- **Config Flow:** Enhanced to capture user preferences for `timesteps` and `update_interval`.
+- **Data Coordinator:** Adapted to use dynamic `timesteps` and `update_interval`. Implemented and integrated the 24-hour API call counter.
+- **API Client:** Enhanced logging to provide deep insight into API interactions for debugging and monitoring.
+- **User Control:** Provides users with critical control over API usage to manage daily limits.
 
 --------------------------------------------------------------------------------
 --- FILE: ./weather.py
 --------------------------------------------------------------------------------
 
-"""Met Office weather entity."""
+"""Weather entity for the Met Office integration."""
 
 # pylint: disable=hass-enforce-class-module
 
 from __future__ import annotations
 
-from homeassistant.components.weather import WeatherEntity
+from homeassistant.components.weather import Forecast, WeatherEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfPressure, UnitOfSpeed, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import get_device_info
-from .const import DOMAIN, W_CODE_CONDITION_MAP
-from .coordinator import MetOfficeDataUpdateCoordinator
+from . import MetOfficeDataUpdateCoordinator, get_device_info
+from .const import DOMAIN, METOFFICE_WEATHER_CODE_MAP
 
 
 class MetOfficeEntity(CoordinatorEntity[MetOfficeDataUpdateCoordinator]):
@@ -332,10 +282,10 @@ class MetOfficeEntity(CoordinatorEntity[MetOfficeDataUpdateCoordinator]):
     _attr_has_entity_name = True
 
     def __init__(self, coordinator: MetOfficeDataUpdateCoordinator) -> None:
-        """Initialize base entity."""
+        """Initialize entity."""
         super().__init__(coordinator)
         self._attr_device_info = get_device_info(
-            coordinator.site_id, coordinator.site_name
+            coordinator.latitude, coordinator.longitude, coordinator.config_entry.title
         )
 
 
@@ -343,59 +293,70 @@ class MetOfficeWeather(MetOfficeEntity, WeatherEntity):
     """Representation of Met Office weather data."""
 
     _attr_name = None
-    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
-    _attr_native_pressure_unit = UnitOfPressure.HPA
-    _attr_native_wind_speed_unit = UnitOfSpeed.METERS_PER_SECOND
+    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_pressure_unit = UnitOfPressure.HPA
+    _attr_wind_speed_unit = UnitOfSpeed.METERS_PER_SECOND
 
     def __init__(self, coordinator: MetOfficeDataUpdateCoordinator) -> None:
-        """Initialize the weather entity."""
+        """Initialize weather entity."""
         super().__init__(coordinator)
-        self._attr_unique_id = coordinator.site_id
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_weather"
 
     @property
     def condition(self) -> str | None:
         """Return current weather condition."""
-        code = self.coordinator.data.get("weather")
-        return (
-            W_CODE_CONDITION_MAP.get(code, "unknown")
-            if isinstance(code, int)
-            else "unknown"
-        )
+        current = self.coordinator.data.get("forecasts", [{}])[0]
+        code = current.get("significantWeatherCode")
+        return METOFFICE_WEATHER_CODE_MAP.get(code, "unknown")
 
     @property
-    def native_temperature(self) -> float | None:
-        """Return current temperature."""
-        return self.coordinator.data.get("temperature")
+    def temperature(self) -> float | None:
+        """Return temperature."""
+        current = self.coordinator.data.get("forecasts", [{}])[0]
+        return current.get("screenTemperature")
 
     @property
-    def native_pressure(self) -> float | None:
-        """Return current pressure."""
-        return self.coordinator.data.get("pressure")
+    def pressure(self) -> float | None:
+        """Return pressure."""
+        current = self.coordinator.data.get("forecasts", [{}])[0]
+        return current.get("mslp")
 
     @property
     def humidity(self) -> int | None:
-        """Return current humidity."""
-        return self.coordinator.data.get("humidity")
+        """Return humidity."""
+        current = self.coordinator.data.get("forecasts", [{}])[0]
+        return current.get("screenRelativeHumidity")
 
     @property
-    def uv_index(self) -> int | None:
-        """Return current UV index."""
-        return self.coordinator.data.get("uv_index")
+    def wind_speed(self) -> float | None:
+        """Return wind speed."""
+        current = self.coordinator.data.get("forecasts", [{}])[0]
+        return current.get("windSpeed10m")
 
     @property
-    def native_wind_speed(self) -> float | None:
-        """Return current wind speed."""
-        return self.coordinator.data.get("wind_speed")
+    def wind_bearing(self) -> float | None:
+        """Return wind bearing."""
+        current = self.coordinator.data.get("forecasts", [{}])[0]
+        return current.get("windDirectionFrom10m")
 
     @property
-    def wind_bearing(self) -> str | None:
-        """Return current wind bearing."""
-        return self.coordinator.data.get("wind_direction")
-
-    @property
-    def native_wind_gust_speed(self) -> float | None:
-        """Return current wind gust speed."""
-        return self.coordinator.data.get("wind_gust")
+    def forecast(self) -> list[Forecast]:
+        """Return the forecast in Home Assistant format."""
+        forecasts = self.coordinator.data.get("forecasts", [])
+        return [
+            {
+                "datetime": item.get("time"),
+                "condition": METOFFICE_WEATHER_CODE_MAP.get(
+                    item.get("significantWeatherCode"), "unknown"
+                ),
+                "temperature": item.get("screenTemperature"),
+                "humidity": item.get("screenRelativeHumidity"),
+                "pressure": item.get("mslp"),
+                "wind_speed": item.get("windSpeed10m"),
+                "wind_bearing": item.get("windDirectionFrom10m"),
+            }
+            for item in forecasts
+        ]
 
 
 async def async_setup_entry(
@@ -413,18 +374,29 @@ async def async_setup_entry(
 
 """The Met Office integration."""
 
+# pylint: disable=hass-enforce-class-module
+
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 import logging
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_CLIENT_ID, CONF_CLIENT_SECRET, Platform
+from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import DOMAIN
-from .coordinator import MetOfficeDataUpdateCoordinator
+from .api import ApiError, MetOfficeApiClient
+from .const import (
+    API_CALL_COUNTER_KEY,
+    CONF_API_KEY,
+    CONF_TIMESTEPS,
+    CONF_UPDATE_INTERVAL,
+    DOMAIN,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -433,17 +405,28 @@ PLATFORMS = [Platform.SENSOR, Platform.WEATHER]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up a Met Office entry."""
+    api_key = entry.data[CONF_API_KEY]
+    latitude = entry.data[CONF_LATITUDE]
+    longitude = entry.data[CONF_LONGITUDE]
+    timesteps = entry.data[CONF_TIMESTEPS]
+    update_interval_minutes = entry.data[CONF_UPDATE_INTERVAL]
+    update_interval_td = timedelta(minutes=update_interval_minutes)
+
+    client = MetOfficeApiClient(hass, api_key)
     coordinator = MetOfficeDataUpdateCoordinator(
-        hass,
-        client_id=entry.data[CONF_CLIENT_ID],
-        client_secret=entry.data[CONF_CLIENT_SECRET],
-        site_id=entry.data["site_id"],
-        site_name=entry.data["site_name"],
+        hass, client, latitude, longitude, timesteps, update_interval_td, entry
     )
+
+    hass.data.setdefault(DOMAIN, {})
+    if API_CALL_COUNTER_KEY not in hass.data[DOMAIN]:
+        hass.data[DOMAIN][API_CALL_COUNTER_KEY] = {
+            "count": 0,
+            "last_reset_date": datetime.now(UTC).date(),
+        }
+
+    hass.data[DOMAIN][entry.entry_id] = coordinator
     await coordinator.async_config_entry_first_refresh()
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    _LOGGER.info("Setting up Met Office for site %s", coordinator.site_name)
     return True
 
 
@@ -455,25 +438,274 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return unload_ok
 
 
-def get_device_info(site_id: str, site_name: str) -> DeviceInfo:
+def get_device_info(latitude: float, longitude: float, name: str) -> DeviceInfo:
     """Return device registry information."""
     return DeviceInfo(
         entry_type=dr.DeviceEntryType.SERVICE,
-        identifiers={(DOMAIN, site_id)},
+        identifiers={(DOMAIN, f"{latitude},{longitude}")},
         manufacturer="Met Office",
-        name=f"Met Office {site_name}",
+        name=f"Met Office {name}",
     )
+
+
+class MetOfficeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Coordinator to fetch data from the Met Office API."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        client: MetOfficeApiClient,
+        latitude: float,
+        longitude: float,
+        timesteps: str,
+        update_interval_td: timedelta,
+        config_entry: ConfigEntry,
+    ) -> None:
+        """Initialize the coordinator.
+
+        Args:
+            hass: Home Assistant instance.
+            client: API client used to retrieve forecasts.
+            latitude: Latitude of forecast location.
+            longitude: Longitude of forecast location.
+            timesteps: Forecast frequency (hourly, three-hourly, daily).
+            update_interval_td: Update interval for coordinator.
+            config_entry: Config entry associated with this coordinator.
+        """
+        self.client = client
+        self.latitude = latitude
+        self.longitude = longitude
+        self.timesteps = timesteps
+        self.config_entry: ConfigEntry = config_entry
+        super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=update_interval_td)
+        self.data: dict[str, Any] = {}
+
+    async def _async_update_data(self) -> dict[str, Any]:
+        """Fetch latest data from Met Office."""
+        try:
+            # Use self.timesteps for the API call
+            data = await self.client.get_point_forecast(
+                self.latitude, self.longitude, self.timesteps
+            )
+
+            # --- API Call Counter Logic (Keep this, it was correct) ---
+            api_counter = self.hass.data[DOMAIN][API_CALL_COUNTER_KEY]
+            current_date = datetime.now(UTC).date()
+            if current_date != api_counter["last_reset_date"]:
+                api_counter["count"] = 0
+                api_counter["last_reset_date"] = current_date
+            api_counter["count"] += 1
+            _LOGGER.info(
+                "Met Office API call successful for %s. Total calls today: %d",
+                self.config_entry.title,
+                api_counter["count"],
+            )
+            # --- End API Call Counter Logic ---
+
+        except ApiError as err:
+            raise UpdateFailed(f"Error fetching data: {err}") from err
+
+        # --- CRITICAL LIVE API RESPONSE PARSING (RE-ENGINEER THIS SECTION) ---
+        features = data.get("features")
+        if not isinstance(features, list) or not features:
+            _LOGGER.warning("API response 'features' list missing or empty: %s", features)
+            raise UpdateFailed("Missing features in API response")
+
+        properties = features[0].get("properties")
+        if not isinstance(properties, dict):
+            _LOGGER.warning("API response 'properties' missing or not a dict: %s", properties)
+            raise UpdateFailed("Missing properties in API response")
+
+        time_series = properties.get("timeSeries")
+        if not isinstance(time_series, list) or not time_series:
+            _LOGGER.warning("API response 'timeSeries' list missing or empty: %s", time_series)
+            raise UpdateFailed("Missing timeSeries in API response")
+
+        # Process each forecast item for unit conversion and key unification
+        processed_forecasts = []
+        for forecast_item in time_series:
+            processed_item = forecast_item.copy() # Work on a copy to avoid modifying original API response
+
+            # Convert mslp from Pascals (Pa) to hectoPascals (hPa)
+            mslp_pa = processed_item.get("mslp")
+            if mslp_pa is not None:
+                processed_item["mslp"] = mslp_pa / 100.0 # Convert to hPa
+
+            # Unify feelsLikeTemperature key (hourly uses 'feelsLikeTemperature', three-hourly/daily use 'feelsLikeTemp')
+            if "feelsLikeTemp" in processed_item and "feelsLikeTemperature" not in processed_item:
+                processed_item["feelsLikeTemperature"] = processed_item["feelsLikeTemp"]
+                # Optionally, del processed_item["feelsLikeTemp"] if we want to strictly enforce one key
+
+            processed_forecasts.append(processed_item)
+
+        # Validate expected keys in the first processed forecast entry (current conditions)
+        expected_keys = {
+            "time",
+            "screenTemperature",
+            "feelsLikeTemperature", # Now unified
+            "probOfPrecipitation",
+            "windDirectionFrom10m",
+            "windSpeed10m",
+            "windGust10m",
+            "screenRelativeHumidity",
+            "mslp", # Now expected in hPa
+            "uvIndex",
+            "visibility",
+            "significantWeatherCode",
+        }
+        # Check against the first processed item
+        missing = [key for key in expected_keys if key not in processed_forecasts[0]]
+        if missing:
+            _LOGGER.warning("Missing expected forecast keys in first entry: %s", missing)
+
+        # Return the processed list of forecast objects, wrapped under "forecasts" key
+        return {"forecasts": processed_forecasts}
+
+--------------------------------------------------------------------------------
+--- FILE: ./api.py
+--------------------------------------------------------------------------------
+
+"""Asynchronous client for the Met Office DataHub API."""
+
+from __future__ import annotations
+
+import json
+import logging
+import time
+from typing import Any
+
+import httpx
+
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.httpx_client import get_async_client
+
+# Import BASE_URL and DATA_SOURCE from your const.py
+from .const import BASE_URL, DATA_SOURCE
+
+_LOGGER = logging.getLogger(__name__)
+
+
+class ApiError(Exception):
+    """MIKEY WUZ HERE CONFIRMED Raised when the API request fails."""
+
+
+class MetOfficeApiClient:
+    """Client for interacting with the Met Office point forecast API."""
+
+    def __init__(self, hass: HomeAssistant, api_key: str) -> None:
+        """Initialize the API client.
+
+        Args:
+            hass: The Home Assistant instance.
+            api_key: The Met Office DataHub API key.
+        """
+        self.api_key = api_key
+        # BASE_URL is imported from const.py for consistency
+        self.base_url = BASE_URL
+        self.client = get_async_client(hass)
+
+    def _get_headers(self) -> dict[str, str]:
+        """Return headers required for the API request."""
+        return {"apikey": self.api_key, "accept": "application/json"}
+
+    async def _make_request(self, url: str, params: dict[str, Any]) -> dict[str, Any]:
+        """Perform a GET request to the API with given parameters.
+
+        Args:
+            url: The full URL for the API request.
+            params: Dictionary of query parameters for the request.
+
+        Returns:
+            A dictionary containing the JSON response from the API.
+
+        Raises:
+            ConfigEntryAuthFailed: If authentication fails (401 status code).
+            ApiError: For other HTTP errors or network connection issues.
+            json.JSONDecodeError: If the API response is not valid JSON.
+        """
+        _LOGGER.debug(
+            "Met Office API Request: URL=%s, Headers=%s, Params=%s",
+            url,
+            self._get_headers(),
+            params,
+        )
+        start_time = time.monotonic()
+        try:
+            response = await self.client.get(
+                url, headers=self._get_headers(), params=params
+            )
+            response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
+            end_time = time.monotonic()
+            duration_ms = round((end_time - start_time) * 1000)
+            _LOGGER.info(
+                "Met Office API call to %s successful in %d ms",
+                url.split("?")[0],  # Log base URL without query params for clarity
+                duration_ms,
+            )
+            _LOGGER.debug("Met Office API Response Body: %s", response.text)  # Log raw response body
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            text = exc.response.text
+            _LOGGER.error("API request failed: %s - %s", status, text)
+            if status == 401:
+                raise ConfigEntryAuthFailed("Invalid API Key") from exc
+            raise ApiError(f"HTTP Error {status}: {text}") from exc
+        except httpx.RequestError as exc:
+            _LOGGER.error("Network error during API request: %s", exc)
+            raise ApiError("Network connection failed") from exc
+
+        try:
+            return response.json()
+        except json.JSONDecodeError as exc:
+            _LOGGER.error("Invalid JSON response from API: %s", exc)
+            raise ApiError("Invalid API response format") from exc
+
+    async def get_point_forecast(
+        self, latitude: float, longitude: float, timesteps: str = "hourly"
+    ) -> dict[str, Any]:
+        """Retrieve probabilistic forecast for a latitude/longitude.
+
+        Args:
+            latitude: The latitude of the forecast location.
+            longitude: The longitude of the forecast location.
+            timesteps: The forecast frequency (e.g., "hourly", "three-hourly", "daily").
+
+        Returns:
+            A dictionary containing the raw JSON forecast data.
+
+        Raises:
+            ApiError: If the API request fails.
+        """
+        # Construct the full URL with timesteps as a path segment (e.g., /point/hourly)
+        full_url = f"{self.base_url}/point/{timesteps}"
+
+        params = {
+            "latitude": str(latitude),
+            "longitude": str(longitude),
+            "dataSource": DATA_SOURCE,  # Mandatory parameter for this API
+            "excludeParameterMetadata": "FALSE",
+            "includeLocationName": "TRUE",
+            # "timesteps" is NOT included here as it's part of the URL path
+        }
+        try:
+            # Pass the constructed full_url to _make_request
+            return await self._make_request(url=full_url, params=params)
+        except ApiError as err:
+            _LOGGER.error("Point forecast request failed: %s", err)
+            raise
 
 --------------------------------------------------------------------------------
 --- FILE: ./manifest.json
 --------------------------------------------------------------------------------
 
 {
-  "domain": "metoffice",
-  "name": "Met Office",
-  "codeowners": ["@MrHarcombe", "@avee87"],
+  "domain": "weatherbitch",
+  "name": "Weather Bitch",
+  "version": "0.1.7",
+  "codeowners": ["@MikeyProtocolSavage"],
   "config_flow": true,
-  "documentation": "https://www.home-assistant.io/integrations/metoffice",
+  "documentation": "https://github.com/MikeyProtocolSavage/homeassistant-metoffice",
   "iot_class": "cloud_polling"
 }
 
@@ -485,7 +717,7 @@ def get_device_info(site_id: str, site_name: str) -> DeviceInfo:
   "config": {
     "step": {
       "user": {
-        "title": "Connect to the UK Met Office",
+        "title": "Connect to the Met Office",
         "data": {
           "api_key": "[%key:common::config_flow::data::api_key%]",
           "latitude": "[%key:common::config_flow::data::latitude%]",
@@ -516,223 +748,191 @@ def get_device_info(site_id: str, site_name: str) -> DeviceInfo:
 --- FILE: ./AGENTS.md
 --------------------------------------------------------------------------------
 
-MANDATE: MetOffice Component Refactor v2.1 (Expanded)
-1. Core Mandates & Rules of Engagement
-You are a specialist AI agent. Your designation is "Refactor Unit 734". Your mission is to execute a complete and flawless overhaul of the Home Assistant metoffice integration. This is a zero-failure-tolerance operation. Adherence to the following directives is absolute and non-negotiable.
-* DIRECTIVE 1: PURGE THE OBSOLETE. The datapoint-python library is a dead artifact. It represents a critical vulnerability and must be eradicated. All traces of it, including its presence in manifest.json and any import or use of MetOfficeDataClient or its associated methods, will be surgically removed. Your final code submission must not contain a single molecule of the old implementation. Any residual code will be treated as a critical mission failure.
-* DIRECTIVE 2: PROTOCOL IS aiohttp. All outbound communication with the Met Office API will be conducted via the aiohttp library, leveraging the shared async_get_clientsession from Home Assistant's core helpers. This is the only authorized communication channel. Do not attempt to use requests, urllib, or any other HTTP client. This ensures consistency with the Home Assistant ecosystem and proper handling of asynchronous operations.
-* DIRECTIVE 3: STRICT API ADHERENCE. You will implement the API client based exclusively on the specifications in Section 2 of this mandate. Do not infer, assume, or hallucinate endpoints, data structures, or parameters. The blueprint is complete; your job is to construct a perfect 1:1 implementation. Probing undocumented endpoints is a direct violation of this directive.
-* DIRECTIVE 4: CODE DISCIPLINE & QUALITY. Your code must be of production quality, suitable for immediate inclusion in a public release.
-   * Comments Are Not Optional. Your code will be extensively commented. Explain the why behind your logic, especially for data transformations, unit conversions, and error handling branches. Assume another developer needs to understand your work without assistance.
-   * Logging is Mandatory. Use the Home Assistant logger (_LOGGER) initialized with logging.getLogger(__name__). Log critical lifecycle events (e.g., "Setting up Met Office for site X"). API requests and responses must be logged at DEBUG level. All error conditions and exceptions must be logged at ERROR level with full context. print() statements are forbidden and considered a primitive debugging tool unfit for this mission.
-   * Style Compliance is Required. Your code must be 100% compliant with black and flake8 as configured in the Home Assistant pre-commit hooks. No exceptions.
-* DIRECTIVE 5: ROBUSTNESS IS PARAMOUNT. The integration must be resilient and fail gracefully.
-   * Error Handling: Implement exhaustive error handling for API calls. Use asyncio.TimeoutError and aiohttp.ClientError as the primary exception catches for network issues. The user must receive clear, actionable feedback for invalid_auth (on HTTP 401/403) and cannot_connect (for all other connection issues) during the configuration flow.
-   * Data Validation: Never trust the API. Before accessing any key in a returned JSON dictionary, verify its existence. If a critical key is missing, the update must fail gracefully, and an error must be logged. Do not allow KeyError exceptions to crash the update coordinator.
-* DIRECTIVE 6: STATE MANAGEMENT INTEGRITY. The DataUpdateCoordinator is the single source of truth. No platform (sensor, weather) should ever attempt to fetch data independently. All entities will subscribe to the coordinator and react to the data it provides. This ensures efficient API usage and consistent state across all related entities.
-2. API Technical Specification: Point Forecast v1
-This is your technical blueprint. Implement it with zero deviation.
-2.1. Authentication
-* Method: Header-based authentication. This is non-negotiable.
-* Required Headers:
-   * x-ibm-client-id: The user's Client ID.
-   * x-ibm-client-secret: The user's Client Secret.
-   * accept: application/json
-* Action: Every single request to the Met Office API must include these three headers, formatted exactly as shown. Header keys are case-sensitive.
-2.2. Endpoints
-* Base URL: https://data-proxy.api.metoffice.gov.uk/val/wxfcs
-Endpoint A: Site List (Validation & Selection)
-* Full URL: https://data-proxy.api.metoffice.gov.uk/val/wxfcs/all/json/sitelist
-* Method: GET
-* Purpose:
-   1. Validation: Used in config_flow.py to validate user credentials. A 200 OK response is the only acceptable proof of success.
-   2. Selection: Used to fetch the list of available forecast sites for the user to choose from during setup.
-* Success Response (200 OK) Data Path: The list of sites is located at response['Locations']['Location']. This is a list of objects.
-* Site Object Structure: Each object in the list contains keys including id, name, latitude, and longitude. You will primarily use id and name.
-Endpoint B: Hourly Forecast (Data Fetching)
-* URL Structure: {BASE_URL}/all/json/{site_id}?res=hourly
-   * Example URL: https://data-proxy.api.metoffice.gov.uk/val/wxfcs/all/json/354261?res=hourly
-   * {site_id} is the ID of the user-selected location (e.g., 354261).
-   * The res=hourly query parameter is mandatory. Failure to include it will result in incorrect data.
-* Method: GET
-* Purpose: This is the primary data source for all sensors and weather entities, executed by the DataUpdateCoordinator.
-* Success Response (200 OK) Data Path:
-   1. Navigate to response['SiteRep']['DV']['Location'].
-   2. This object contains Period, a list of days. You must use the first day: Period[0]. This represents today's forecast.
-   3. This day object contains Rep, a list of hourly forecast steps. You must use the first step: Rep[0]. This represents the latest available forecast hour.
-* Key Data Fields within Rep[0]: This object contains the latest forecast data. You will parse all of the following string keys. Be prepared to handle their absence.
-   * D: Wind Direction (string, e.g., "NNW")
-   * F: Feels Like Temperature (°C, string)
-   * G: Wind Gust (mph, string)
-   * H: Screen Relative Humidity (%, string)
-   * P: Precipitation Probability (%, string)
-   * S: Wind Speed (mph, string)
-   * T: Temperature (°C, string)
-   * V: Visibility (coded string, e.g., "VG")
-   * W: Weather Type (integer code, string)
-   * U: Max UV Index (integer)
-   * Pp: Pressure (hPa, string)
-   * $: Time in minutes past midnight (string, e.g., "900")
-3. Data Parsing & Transformation Protocol
-Raw data is unacceptable. You will process and transform the data as follows.
-* Type Conversion: All numeric values are returned as strings. You will convert them to int or float as appropriate using try-except blocks to handle potential ValueError if the API returns non-numeric data unexpectedly.
-* Time Calculation: The forecast time must be a timezone-aware datetime object.
-   1. Get the date string from SiteRep.DV.Location.Period[0]['value'] (e.g., "2025-07-19Z").
-   2. Get the minutes from midnight from the $ key in the Rep object.
-   3. Combine these to construct a full datetime object. The 'Z' at the end of the date string indicates UTC, so the resulting datetime object must be UTC-aware.
-* Unit Conversion: Wind Speed & Gust: The API provides wind speeds in mph. The Home Assistant standard is m/s. You will perform this conversion: m/s = mph * 0.44704. Perform this calculation after converting the string value to a float.
-* Visibility Mapping: The API provides a code for visibility. You will map this code to a human-readable string for the sensor state, as follows. If an unknown code is received, it should default to "Unknown".
-   * "VP" -> "Very Poor (<1 km)"
-   * "PO" -> "Poor (1-4 km)"
-   * "MO" -> "Moderate (4-10 km)"
-   * "GO" -> "Good (10-20 km)"
-   * "VG" -> "Very Good (20-40 km)"
-   * "EX" -> "Excellent (>40 km)"
-* Data Integrity Checks: For every key accessed from the Rep object, you will use the .get() dictionary method with a default value of None. This prevents KeyError exceptions and allows you to handle missing data gracefully for each sensor.
-4. File-by-File Execution Plan
-Execute this plan with military precision.
-1. manifest.json
-   * TERMINATE the requirements entry for datapoint-python.
-   * ENSURE iot_class is set to "cloud_polling".
-2. const.py
-   * RENAME CONF_API_KEY to CONF_CLIENT_ID.
-   * RENAME CONF_API_SECRET to CONF_CLIENT_SECRET.
-   * ESTABLISH the new base URL constant: BASE_URL = "https://data-proxy.api.metoffice.gov.uk/val/wxfcs"
-   * DEFINE the DOMAIN as "metoffice".
-3. __init__.py
-   * IMPLEMENT async_setup_entry. This function will:
-      1. Create an aiohttp.ClientSession.
-      2. Instantiate your DataUpdateCoordinator.
-      3. Perform an initial data fetch with await coordinator.async_config_entry_first_refresh().
-      4. Store the coordinator in hass.data.
-      5. Forward the setup to the sensor and weather platforms using await hass.config_entries.async_forward_entry_setups().
-   * IMPLEMENT async_unload_entry. This function will unload the sensor and weather platforms.
-4. config_flow.py
-   * REBUILD the user input schema (DATA_SCHEMA) to request CONF_CLIENT_ID and CONF_CLIENT_SECRET.
-   * REWRITE the validation logic. It will make a GET request to the Site List endpoint. On 200 OK, it will store the fetched sites and proceed. On 401/403, it will return an error for invalid_auth. On any other failure, it will return cannot_connect.
-   * IMPLEMENT a second step in the flow where the user selects their desired location from a dropdown populated by the site list. The dropdown should show the site name and use the id as the value.
-   * STORE the client_id, client_secret, and the selected site_id and site_name in the final config entry.
-5. coordinator.py (New File)
-   * CONSTRUCT a MetOfficeDataUpdateCoordinator class inheriting from DataUpdateCoordinator.
-   * The _async_update_data method will execute the data fetching logic. It will make a GET request to the Hourly Forecast endpoint, parse the response per Section 2.2, perform all transformations per Section 3, and return a single, clean dictionary of all available data points.
-6. sensor.py
-   * ESTABLISH a base MetOfficeEntity inheriting from CoordinatorEntity.
-   * CREATE individual sensor entity classes for each data point listed below, inheriting from the base entity. Each sensor must have its name, device_class, state_class, and native_unit_of_measurement correctly defined.
-      * Temperature (device_class: temperature, state_class: measurement, unit: °C)
-      * Feels Like Temperature (device_class: temperature, state_class: measurement, unit: °C)
-      * Humidity (device_class: humidity, state_class: measurement, unit: %)
-      * Wind Speed (device_class: wind_speed, state_class: measurement, unit: m/s)
-      * Wind Gust (device_class: wind_speed, state_class: measurement, unit: m/s)
-      * Wind Direction
-      * Pressure (device_class: pressure, state_class: measurement, unit: hPa)
-      * Visibility
-      * UV Index (state_class: measurement)
-      * Probability of Precipitation (state_class: measurement, unit: %)
-7. weather.py
-   * ESTABLISH a MetOfficeWeather entity inheriting from WeatherEntity and your base MetOfficeEntity.
-   * The entity's state (condition) will be determined by mapping the W (Weather Type) code from the API using the table in Section 5.
-   * Populate all relevant attributes: temperature, humidity, wind_speed, wind_bearing (converted from direction string), pressure, etc., from the coordinator's data.
-5. W Code to HA Condition Mapping
-This mapping for the weather entity is mandatory. If an unknown code is received, the condition should default to unknown.
-Code (W)
-	HA Condition
-	0
-	clear-night
-	1
-	sunny
-	2, 3
-	partlycloudy
-	5, 6
-	fog
-	7, 8
-	cloudy
-	9, 10, 13, 14, 15
-	pouring
-	11, 12
-	rainy
-	16, 17, 18
-	snowy-rainy
-	19, 20, 21
-	hail
-	22, 23, 24, 25, 26, 27
-	snowy
-	28, 29
-	lightning-rainy
-	30
-	lightning
-	6. Final Validation Checklist
-Before concluding your mission, perform this self-audit. A "no" to any question constitutes a failure.
-1. Has every file been purged of datapoint-python references?
-2. Is aiohttp used for all API communication?
-3. Does the config_flow correctly handle invalid_auth and cannot_connect errors?
-4. Are all numeric values from the API correctly converted from strings to numbers?
-5. Is wind speed correctly converted from mph to m/s?
-6. Does the code gracefully handle missing keys in the API response without raising KeyError?
-7. Is a DataUpdateCoordinator implemented and used as the single source of truth?
-8. Are all specified sensor and weather entities created and correctly populated?
-9. Is all code compliant with black and flake8?
-10. Has extensive logging and commenting been added?
-MISSION START. EXECUTE.
+AGENTS.MD - MET OFFICE INTEGRATION DIRECTIVE
+DOCUMENT PURPOSE: This is the supreme governing document for the Met Office Home Assistant Integration. It outlines the project's mission, the critical technical mandates, and the NON-NEGOTIABLE PROTOCOLS for all development agents, human or AI. Adherence is mandatory. This document supersedes all previous instructions.
+1.0 MISSION STATEMENT
+To engineer, deploy, and maintain the most robust, accurate, and user-friendly Met Office DataHub integration for Home Assistant. This integration will serve as a benchmark for external API consumption within the Home Assistant ecosystem, delivering precise, site-specific probabilistic forecasts. We are not building a simple connector; we are forging a foundational weather data asset for Home Assistant users.
+2.0 ARCHITECTURAL DECREE (CONTEXT)
+The integration's architecture is established within the Home Assistant framework. All development will adhere to this stack and its principles:
+Framework: Home Assistant Integration (Python)
+API Client: Dedicated, robust httpx-based client for Met Office DataHub. CRITICAL UPDATE: This is now a point-based API, using Latitude and Longitude as parameters, NOT location_id or OGC collections.
+Data Flow: DataUpdateCoordinator for periodic fetching and state management.
+User Configuration: ConfigFlow for secure and guided setup.
+Entities: Standard Home Assistant SensorEntity and WeatherEntity types.
+3.0 OPERATIONAL PROTOCOLS (NON-NEGOTIABLE)
+DEVIATION FROM THESE PROTOCOLS IS A CRITICAL FAILURE. NO EXCUSES, CODING BITCHES.
+3.1 Authentication Mechanism Mandate
+THE LAW: The ONLY accepted authentication method is the apikey HTTP request header.
+THE MANDATE:
+Header Key: apikey (lowercase, exactly as specified).
+Value: The user-provided Met Office DataHub API key.
+ADDITIONAL REQUIRED HEADER: Accept: application/json for all API requests.
+FORBIDDEN METHODS:
+NO x-ibm-client-id or any other IBM-specific headers.
+NO OAuth, NO client secrets, NO client IDs in the request body or query parameters.
+NO hardcoding of API keys.
+STRICT ADHERENCE: The authentication mechanism MUST precisely match the apikey: <YOUR-API-KEY> header-only method documented in the Met Office DataHub API docs.
+3.2 Robust Logging Discipline
+THE LAW: Comprehensive and context-rich logging is mandatory.
+THE MANDATE:
+Use _LOGGER (from logging).
+API Interactions: Log every significant API request and its outcome (success, failure).
+Error Logging:
+Log all httpx.RequestError (network issues) as ERROR.
+Log all httpx.HTTPStatusError (non-200 HTTP responses) as ERROR, including the status code and response body.
+Log json.JSONDecodeError as ERROR if API responses are malformed.
+Log UpdateFailed exceptions in the Data Coordinator with descriptive messages.
+Data Processing: Log WARNING if expected data fields (e.g., features, properties, timeSeries, specific forecast properties) are missing from a valid API response, indicating graceful degradation.
+Authentication Failures: Log ERROR when ConfigEntryAuthFailed occurs.
+Informative Messages: Log messages MUST be clear, concise, and provide enough context for debugging (e.g., endpoint, error type, relevant data snippets).
+3.3 Changelog Discipline (Redux)
+THE LAW: The CHANGELOG.md file in the root directory is the single, immutable source of truth for ALL changes.
+THE MANDATE: Every single commit that alters code, functionality, or dependencies MUST have a corresponding, DETAILED, TIMESTAMPED ENTRY in the changelog.
+FORMATTING: All entries MUST strictly adhere to the following format, appending to the existing changelog:
+## [VERSION] - YYYY-MM-DD
+### Added
+- For new features introduced (e.g., "Implemented MetOfficeApiClient with methods for collections, locations, and site forecasts.").
+### Changed
+- For modifications to existing functionality (e.g., "Refactored ConfigFlow to include location selection step.").
+### Fixed
+- For any bug fixes (e.g., "Resolved issue where missing 'uvIndex' field caused sensor to fail.").
+### Findings/Deliverables Summary
+- **API Client:** Detailed summary of `api.py` methods implemented and their error handling.
+- **Config Flow:** Detailed summary of `config_flow.py` steps, input validation, and data storage.
+- **Data Coordinator:** Detailed summary of `__init__.py` coordinator setup, update logic, and data extraction (e.g., "Extracting first `timeSeries` entry as current forecast.").
+- **Entities:** Detailed summary of `sensor.py` and `weather.py` entities, including specific fields mapped and the `METOFFICE_WEATHER_CODE_MAP` implementation.
+- **Robustness:** Specific examples of error handling implemented (e.g., `.get()` for missing keys, `try-except` for API calls).
+- **Any Ambiguity Resolutions:** Explicitly state how any ambiguities from previous prompts were resolved (e.g., "Resolved multi-hour forecast ambiguity by providing full `timeSeries` to WeatherEntity's `forecast` property.").
 
+
+
+TIMESTAMP: Use the current date and time (e.g., 2025-07-19 12:39 BST).
+3.4 Code Quality & Focus
+THE EXPECTATION: Code will be clean, efficient, self-evident, and kick-ass.
+THE REQUIREMENT:
+Every class, method, and function MUST be preceded by a comprehensive docstring explaining its purpose, arguments, and return values.
+Use inline comments to explain the why behind complex or non-obvious logic, not the what.
+STRICT FOCUS: Your work is confined SOLELY to the homeassistant/components/weatherbitch/ directory. Do not touch other files unless explicitly instructed.
+ROBUSTNESS: Prioritize defensive programming. Assume API responses might be incomplete or malformed.
+HOME ASSISTANT BEST PRACTICES: Adhere to the Home Assistant development guidelines for integrations (e.g., asyncio, vol, DataUpdateCoordinator).
+3.5 Versioning Mandate
+THE STANDARD: Semantic Versioning (SemVer) MAJOR.MINOR.PATCH is the only accepted versioning scheme.
+PATCH: For backward-compatible bug fixes only.
+MINOR: For new, backward-compatible functionality.
+MAJOR: For any change that breaks backward compatibility.
+THIS MANIFESTO IS LAW. EXECUTE ACCORDINGLY. NO FUCKING AROUND.
+
+--------------------------------------------------------------------------------
+--- FILE: ./translations/en.json
+--------------------------------------------------------------------------------
+
+{
+    "config": {
+        "abort": {
+            "already_configured": "Service is already configured",
+            "reauth_successful": "Re-authentication was successful"
+        },
+        "error": {
+            "cannot_connect": "Failed to connect",
+            "invalid_auth": "Invalid authentication",
+            "unknown": "Unexpected error"
+        },
+        "step": {
+            "reauth_confirm": {
+                "data": {
+                    "api_key": "API key"
+                },
+                "description": "Please re-enter your DataHub API key. If you are still using an old Datapoint API key, you need to sign up for DataHub API now, see [documentation]({docs_url}) for details.",
+                "title": "Reauthenticate with DataHub API"
+            },
+            "user": {
+                "data": {
+                    "api_key": "API key",
+                    "latitude": "Latitude",
+                    "longitude": "Longitude"
+                },
+                "title": "Connect to the Met Office"
+            }
+        }
+    }
+}
 --------------------------------------------------------------------------------
 --- FILE: ./const.py
 --------------------------------------------------------------------------------
 
-"""Met Office constants."""
+"""Constants for the Met Office integration."""
 
 from __future__ import annotations
 
 from datetime import timedelta
 
-DOMAIN = "metoffice"
+from homeassistant.components.weather import (
+    ATTR_CONDITION_CLEAR_NIGHT,
+    ATTR_CONDITION_CLOUDY,
+    ATTR_CONDITION_FOG,
+    ATTR_CONDITION_HAIL,
+    ATTR_CONDITION_LIGHTNING,
+    ATTR_CONDITION_PARTLYCLOUDY,
+    ATTR_CONDITION_RAINY,
+    ATTR_CONDITION_SNOWY,
+    ATTR_CONDITION_SUNNY,
+)
 
-CONF_CLIENT_ID = "client_id"
-CONF_CLIENT_SECRET = "client_secret"
+DOMAIN = "weatherbitch" # Retaining "weatherbitch" as per user override
 
-BASE_URL = "https://data-proxy.api.metoffice.gov.uk/val/wxfcs"
+CONF_API_KEY = "api_key"
 
-DEFAULT_SCAN_INTERVAL = timedelta(minutes=15)
+UPDATE_INTERVAL = timedelta(minutes=15)
 
-VISIBILITY_MAP: dict[str, str] = {
-    "VP": "Very Poor (<1 km)",
-    "PO": "Poor (1-4 km)",
-    "MO": "Moderate (4-10 km)",
-    "GO": "Good (10-20 km)",
-    "VG": "Very Good (20-40 km)",
-    "EX": "Excellent (>40 km)",
-}
+CONF_TIMESTEPS = "timesteps"
+TIMESTEP_OPTIONS = ["hourly", "three-hourly", "daily"]
 
-W_CODE_CONDITION_MAP: dict[int, str] = {
-    0: "clear-night",
-    1: "sunny",
-    2: "partlycloudy",
-    3: "partlycloudy",
-    5: "fog",
-    6: "fog",
-    7: "cloudy",
-    8: "cloudy",
-    9: "pouring",
-    10: "pouring",
-    11: "rainy",
-    12: "rainy",
-    13: "pouring",
-    14: "pouring",
-    15: "pouring",
-    16: "snowy-rainy",
-    17: "snowy-rainy",
-    18: "snowy-rainy",
-    19: "hail",
-    20: "hail",
-    21: "hail",
-    22: "snowy",
-    23: "snowy",
-    24: "snowy",
-    25: "snowy",
-    26: "snowy",
-    27: "snowy",
-    28: "lightning-rainy",
-    29: "lightning-rainy",
-    30: "lightning",
+CONF_UPDATE_INTERVAL = "update_interval"
+MIN_UPDATE_INTERVAL = timedelta(minutes=15)
+MAX_UPDATE_INTERVAL = timedelta(hours=6)
+
+API_CALL_COUNTER_KEY = f"{DOMAIN}_api_call_counter"
+
+DEFAULT_TIMESTEPS = "hourly"
+
+# Base URL for the Met Office DataHub point forecast API (CORRECTED BASE_URL)
+BASE_URL = "https://data.hub.api.metoffice.gov.uk/sitespecific/v0"
+
+# Mandatory data source parameter for the point forecast API (ADDED)
+DATA_SOURCE = "BD1"
+
+METOFFICE_WEATHER_CODE_MAP: dict[int, str] = {
+    0: ATTR_CONDITION_CLEAR_NIGHT,
+    1: ATTR_CONDITION_SUNNY,
+    2: ATTR_CONDITION_PARTLYCLOUDY,
+    3: ATTR_CONDITION_PARTLYCLOUDY,
+    4: ATTR_CONDITION_SUNNY, # This code is often unused or deprecated, mapping to sunny
+    5: ATTR_CONDITION_FOG,
+    6: ATTR_CONDITION_FOG,
+    7: ATTR_CONDITION_CLOUDY,
+    8: ATTR_CONDITION_CLOUDY,
+    9: ATTR_CONDITION_RAINY,
+    10: ATTR_CONDITION_RAINY,
+    11: ATTR_CONDITION_RAINY,
+    12: ATTR_CONDITION_RAINY,
+    13: ATTR_CONDITION_RAINY,
+    14: ATTR_CONDITION_RAINY,
+    15: ATTR_CONDITION_RAINY,
+    16: ATTR_CONDITION_SNOWY,
+    17: ATTR_CONDITION_SNOWY,
+    18: ATTR_CONDITION_SNOWY,
+    19: ATTR_CONDITION_HAIL,
+    20: ATTR_CONDITION_HAIL,
+    21: ATTR_CONDITION_HAIL,
+    22: ATTR_CONDITION_SNOWY,
+    23: ATTR_CONDITION_SNOWY,
+    24: ATTR_CONDITION_SNOWY,
+    25: ATTR_CONDITION_SNOWY,
+    26: ATTR_CONDITION_SNOWY,
+    27: ATTR_CONDITION_SNOWY,
+    28: ATTR_CONDITION_LIGHTNING, # Mapped to generic lightning as per directive
+    29: ATTR_CONDITION_LIGHTNING, # Mapped to generic lightning as per directive
+    30: ATTR_CONDITION_LIGHTNING, # Mapped to generic lightning as per directive
 }
 
 --------------------------------------------------------------------------------
@@ -746,19 +946,26 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import aiohttp
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
-from homeassistant.const import CONF_CLIENT_ID, CONF_CLIENT_SECRET
-from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.const import CONF_LATITUDE, CONF_LONGITUDE, CONF_NAME
+from homeassistant.exceptions import ConfigEntryAuthFailed
 
-from .const import BASE_URL, DOMAIN
+from .api import ApiError, MetOfficeApiClient
+from .const import (
+    CONF_API_KEY,
+    CONF_TIMESTEPS,
+    CONF_UPDATE_INTERVAL,
+    DEFAULT_TIMESTEPS,
+    DOMAIN,
+    MAX_UPDATE_INTERVAL,
+    MIN_UPDATE_INTERVAL,
+    TIMESTEP_OPTIONS,
+    UPDATE_INTERVAL,
+)
 
 _LOGGER = logging.getLogger(__name__)
-
-SITE_LIST_URL = f"{BASE_URL}/all/json/sitelist"
 
 
 class MetOfficeConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -766,99 +973,64 @@ class MetOfficeConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    def __init__(self) -> None:
-        """Initialize the config flow."""
-        self.client_id: str | None = None
-        self.client_secret: str | None = None
-        self.sites: list[dict[str, Any]] | None = None
-
-    async def _async_get_sites(
-        self, client_id: str, client_secret: str
-    ) -> list[dict[str, Any]]:
-        """Fetch available sites from the API."""
-        headers = {
-            "x-ibm-client-id": client_id,
-            "x-ibm-client-secret": client_secret,
-            "accept": "application/json",
-        }
-        session = async_get_clientsession(self.hass)
-        try:
-            resp = await session.get(
-                SITE_LIST_URL, headers=headers, timeout=aiohttp.ClientTimeout(total=10)
-            )
-        except (TimeoutError, aiohttp.ClientError) as err:
-            _LOGGER.error("Connection error: %s", err)
-            raise CannotConnect from err
-        if resp.status in (401, 403):
-            raise InvalidAuth
-        if resp.status != 200:
-            raise CannotConnect
-        data = await resp.json()
-        sites = data.get("Locations", {}).get("Location")
-        if not isinstance(sites, list):
-            raise CannotConnect
-        return sites
-
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle the initial step where credentials are entered."""
+        """Handle the initial step of the config flow."""
         errors: dict[str, str] = {}
+
         if user_input is not None:
-            self.client_id = user_input[CONF_CLIENT_ID]
-            self.client_secret = user_input[CONF_CLIENT_SECRET]
+            api_key = user_input[CONF_API_KEY]
+            latitude = user_input.get(CONF_LATITUDE, self.hass.config.latitude)
+            longitude = user_input.get(CONF_LONGITUDE, self.hass.config.longitude)
+            name = user_input[CONF_NAME]
+            timesteps = user_input[CONF_TIMESTEPS]
+            update_interval = user_input[CONF_UPDATE_INTERVAL]
+            client = MetOfficeApiClient(self.hass, api_key)
             try:
-                self.sites = await self._async_get_sites(
-                    self.client_id, self.client_secret
-                )
-            except InvalidAuth:
+                await client.get_point_forecast(latitude, longitude)
+            except ConfigEntryAuthFailed:
                 errors["base"] = "invalid_auth"
-            except CannotConnect:
+            except ApiError:
                 errors["base"] = "cannot_connect"
-            if not errors:
-                return await self.async_step_location()
+            else:
+                return self.async_create_entry(
+                    title=name,
+                    data={
+                        CONF_API_KEY: api_key,
+                        CONF_LATITUDE: latitude,
+                        CONF_LONGITUDE: longitude,
+                        CONF_TIMESTEPS: timesteps,
+                        CONF_UPDATE_INTERVAL: update_interval,
+                    },
+                )
+
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_CLIENT_ID): str,
-                    vol.Required(CONF_CLIENT_SECRET): str,
+                    vol.Required(CONF_API_KEY): str,
+                    vol.Required(CONF_NAME, default="Met Office Forecast"): str,
+                    vol.Required(
+                        CONF_LATITUDE, default=self.hass.config.latitude
+                    ): float,
+                    vol.Required(
+                        CONF_LONGITUDE, default=self.hass.config.longitude
+                    ): float,
+                    vol.Required(CONF_TIMESTEPS, default=DEFAULT_TIMESTEPS): vol.In(
+                        TIMESTEP_OPTIONS
+                    ),
+                    vol.Required(
+                        CONF_UPDATE_INTERVAL,
+                        default=int(UPDATE_INTERVAL.total_seconds() // 60),
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(
+                            min=int(MIN_UPDATE_INTERVAL.total_seconds() // 60),
+                            max=int(MAX_UPDATE_INTERVAL.total_seconds() // 60),
+                        ),
+                    ),
                 }
             ),
             errors=errors,
         )
-
-    async def async_step_location(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Select a forecast site from the returned list."""
-        errors: dict[str, str] = {}
-        assert self.sites
-        options = {site["id"]: site["name"] for site in self.sites}
-        if user_input is not None:
-            site_id = user_input["site"]
-            site_name = options[site_id]
-            await self.async_set_unique_id(site_id)
-            self._abort_if_unique_id_configured()
-            return self.async_create_entry(
-                title=site_name,
-                data={
-                    CONF_CLIENT_ID: self.client_id,
-                    CONF_CLIENT_SECRET: self.client_secret,
-                    "site_id": site_id,
-                    "site_name": site_name,
-                },
-            )
-        return self.async_show_form(
-            step_id="location",
-            data_schema=vol.Schema({vol.Required("site"): vol.In(options)}),
-            errors=errors,
-        )
-
-
-class CannotConnect(HomeAssistantError):
-    """Error to indicate we cannot connect."""
-
-
-class InvalidAuth(HomeAssistantError):
-    """Error to indicate invalid authentication."""

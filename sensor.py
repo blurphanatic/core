@@ -94,7 +94,6 @@ SENSOR_TYPES: tuple[MetOfficeSensorDescription, ...] = (
     MetOfficeSensorDescription(
         key="uvIndex",
         name="UV Index",
-        device_class=SensorDeviceClass.ILLUMINANCE,
         state_class=SensorStateClass.MEASUREMENT,
     ),
     MetOfficeSensorDescription(
@@ -103,6 +102,27 @@ SENSOR_TYPES: tuple[MetOfficeSensorDescription, ...] = (
         device_class=SensorDeviceClass.DISTANCE,
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfLength.METERS,
+    ),
+    # New sensors added for modernization
+    MetOfficeSensorDescription(
+        key="dewPoint",
+        name="Dew Point",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+    ),
+    MetOfficeSensorDescription(
+        key="totalPrecipAmount",
+        name="Precipitation",
+        device_class=SensorDeviceClass.PRECIPITATION,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfLength.MILLIMETERS,
+    ),
+    MetOfficeSensorDescription(
+        key="totalCloudAmount",
+        name="Cloud Coverage",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=PERCENTAGE,
     ),
 )
 
@@ -138,8 +158,14 @@ class MetOfficeSensor(MetOfficeEntity, SensorEntity):
 
     @property
     def native_value(self) -> StateType:
-        """Return sensor value from coordinator data."""
-        current = self.coordinator.data.get("forecasts", [{}])[0]
+        """Return sensor value from coordinator data.
+
+        Handles both old structure (forecasts key) and potential future
+        structure (current key).
+        """
+        data = self.coordinator.data or {}
+        # Try new structure first, fall back to old
+        current = data.get("current") or data.get("forecasts", [{}])[0]
         return current.get(self.entity_description.key)
 
 

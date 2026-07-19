@@ -2,15 +2,24 @@
   "config": {
     "step": {
       "user": {
-        "title": "Connect to the Met Office",
+        "title": "Set up Met Office Weather",
+        "description": "Enter your Met Office DataHub API key and location.",
         "data": {
           "api_key": "[%key:common::config_flow::data::api_key%]",
+          "name": "Location Name",
           "latitude": "[%key:common::config_flow::data::latitude%]",
-          "longitude": "[%key:common::config_flow::data::longitude%]"
+          "longitude": "[%key:common::config_flow::data::longitude%]",
+          "timesteps": "Forecast Interval",
+          "update_interval": "Update Interval (minutes)"
+        },
+        "data_description": {
+          "api_key": "Your Met Office DataHub API key from datahub.metoffice.gov.uk",
+          "timesteps": "How frequently forecast data points are provided (hourly, three-hourly, or daily)",
+          "update_interval": "How often to fetch new data (15-360 minutes)"
         }
       },
       "reauth_confirm": {
-        "title": "Reauthenticate with DataHub API",
+        "title": "Reauthenticate with Met Office",
         "description": "Please re-enter your DataHub API key. If you are still using an old Datapoint API key, you need to sign up for DataHub API now, see [documentation]({docs_url}) for details.",
         "data": {
           "api_key": "[%key:common::config_flow::data::api_key%]"
@@ -25,6 +34,22 @@
     "abort": {
       "already_configured": "[%key:common::config_flow::abort::already_configured_service%]",
       "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Met Office Options",
+        "description": "Configure forecast and update settings.",
+        "data": {
+          "timesteps": "Forecast Interval",
+          "update_interval": "Update Interval (minutes)"
+        },
+        "data_description": {
+          "timesteps": "How frequently forecast data points are provided (hourly, three-hourly, or daily)",
+          "update_interval": "How often to fetch new data (15-360 minutes). Lower values use more API calls."
+        }
+      }
     }
   }
 }

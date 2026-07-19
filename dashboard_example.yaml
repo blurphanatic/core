@@ -1,0 +1,356 @@
+# Weather Dashboard Example for Home Assistant
+# This showcases how to use weatherbitch forecast data in dashboards
+#
+# To use this:
+# 1. Go to Settings → Dashboards → Add Dashboard
+# 2. Create a new dashboard (or edit existing)
+# 3. Click three dots → "Raw configuration editor"
+# 4. Paste the relevant card configurations below
+
+# =============================================================================
+# FULL WEATHER VIEW - Complete weather dashboard layout
+# =============================================================================
+# Add this as a new view in your dashboard
+
+title: Weather
+path: weather
+icon: mdi:weather-partly-cloudy
+cards:
+  # Row 1: Current Conditions Overview
+  - type: horizontal-stack
+    cards:
+      # Main weather card with 5-day forecast
+      - type: weather-forecast
+        entity: weather.met_office_met_office_forecast_daily
+        forecast_type: daily
+        name: 7-Day Forecast
+        show_current: true
+        show_forecast: true
+
+      # Current conditions detailed
+      - type: vertical-stack
+        cards:
+          - type: entity
+            entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_temperature
+            name: Current Temperature
+            icon: mdi:thermometer
+
+          - type: entity
+            entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_feels_like_temperature
+            name: Feels Like
+            icon: mdi:thermometer-lines
+
+          - type: entity
+            entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_probability_of_precipitation
+            name: Rain Chance
+            icon: mdi:weather-rainy
+
+  # Row 2: Today's Hourly Forecast
+  - type: custom:apexcharts-card
+    header:
+      show: true
+      title: Today's Hourly Forecast
+      show_states: true
+    graph_span: 24h
+    span:
+      start: day
+    series:
+      - entity: sensor.met_office_met_office_forecast_hourly_met_office_forecast_hourly_temperature
+        name: Temperature
+        stroke_width: 3
+        color: '#ff6b6b'
+        show:
+          legend_value: true
+
+      - entity: sensor.met_office_met_office_forecast_hourly_met_office_forecast_hourly_probability_of_precipitation
+        name: Rain %
+        stroke_width: 2
+        color: '#4dabf7'
+        yaxis_id: rain
+        show:
+          legend_value: true
+
+    yaxis:
+      - id: temp
+        apex_config:
+          title:
+            text: Temperature (°C)
+      - id: rain
+        opposite: true
+        apex_config:
+          title:
+            text: Precipitation %
+
+  # Row 3: Wind & Pressure Details
+  - type: horizontal-stack
+    cards:
+      # Wind speed gauge
+      - type: gauge
+        entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_wind_speed
+        name: Wind Speed
+        min: 0
+        max: 100
+        severity:
+          green: 0
+          yellow: 30
+          red: 60
+        needle: true
+
+      # Wind direction compass
+      - type: entity
+        entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_wind_direction
+        name: Wind Direction
+        icon: mdi:compass
+        attribute: friendly_name
+
+      # Pressure
+      - type: entity
+        entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_pressure
+        name: Pressure
+        icon: mdi:gauge
+
+      # Humidity
+      - type: entity
+        entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_humidity
+        name: Humidity
+        icon: mdi:water-percent
+
+  # Row 4: UV Index & Visibility
+  - type: horizontal-stack
+    cards:
+      - type: entity
+        entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_uv_index
+        name: UV Index
+        icon: mdi:weather-sunny-alert
+
+      - type: entity
+        entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_visibility
+        name: Visibility
+        icon: mdi:eye
+
+      - type: entity
+        entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_wind_gust
+        name: Wind Gusts
+        icon: mdi:weather-windy
+
+  # Row 5: Hourly vs Daily Comparison
+  - type: vertical-stack
+    cards:
+      - type: markdown
+        content: >
+          ## 📊 Forecast Comparison
+
+          Compare the three different forecast frequencies
+
+      - type: entities
+        title: Temperature Comparison
+        entities:
+          - entity: sensor.met_office_met_office_forecast_hourly_met_office_forecast_hourly_temperature
+            name: Hourly Forecast
+            icon: mdi:clock-outline
+
+          - entity: sensor.met_office_met_office_forecast_met_office_forecast_temperature
+            name: 3-Hourly Forecast
+            icon: mdi:clock-time-three-outline
+
+          - entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_temperature
+            name: Daily Forecast
+            icon: mdi:calendar-today
+
+
+# =============================================================================
+# ALTERNATIVE LAYOUTS - Different ways to display forecast data
+# =============================================================================
+
+# COMPACT WEATHER CARD - For sidebar or mobile view
+compact_weather:
+  type: vertical-stack
+  cards:
+    - type: weather-forecast
+      entity: weather.met_office_met_office_forecast_hourly
+      forecast_type: hourly
+      name: Next 24 Hours
+      show_forecast: true
+
+    - type: glance
+      entities:
+        - entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_temperature
+          name: Temp
+        - entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_probability_of_precipitation
+          name: Rain
+        - entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_wind_speed
+          name: Wind
+
+
+# DETAILED FORECAST TABLE - Shows all key metrics
+detailed_forecast_table:
+  type: entities
+  title: Detailed Weather Data
+  show_header_toggle: false
+  entities:
+    - type: section
+      label: Temperature
+    - entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_temperature
+      name: Current
+    - entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_feels_like_temperature
+      name: Feels Like
+
+    - type: section
+      label: Precipitation
+    - entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_probability_of_precipitation
+      name: Rain Probability
+
+    - type: section
+      label: Wind
+    - entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_wind_speed
+      name: Speed
+    - entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_wind_direction
+      name: Direction
+    - entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_wind_gust
+      name: Gusts
+
+    - type: section
+      label: Atmospheric
+    - entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_pressure
+      name: Pressure
+    - entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_humidity
+      name: Humidity
+    - entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_visibility
+      name: Visibility
+    - entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_uv_index
+      name: UV Index
+
+
+# WEATHER ALERTS CARD - Conditional display based on conditions
+weather_alerts:
+  type: conditional
+  conditions:
+    - entity: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_probability_of_precipitation
+      state_not: unavailable
+  card:
+    type: markdown
+    content: >
+      {% set rain_prob = states('sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_probability_of_precipitation') | int(0) %}
+      {% set wind_speed = states('sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_wind_speed') | float(0) %}
+      {% set uv = states('sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_uv_index') | int(0) %}
+
+      ## ⚠️ Weather Alerts
+
+      {% if rain_prob > 70 %}
+      🌧️ **High chance of rain** ({{ rain_prob }}%) - Bring an umbrella!
+      {% elif rain_prob > 40 %}
+      ☁️ **Possible rain** ({{ rain_prob }}%) - Keep an eye on the sky
+      {% endif %}
+
+      {% if wind_speed > 50 %}
+      💨 **High winds** ({{ wind_speed }} km/h) - Secure outdoor items
+      {% elif wind_speed > 30 %}
+      🍃 **Breezy conditions** ({{ wind_speed }} km/h)
+      {% endif %}
+
+      {% if uv >= 8 %}
+      ☀️ **Very high UV** ({{ uv }}) - Wear sunscreen!
+      {% elif uv >= 6 %}
+      🌤️ **High UV** ({{ uv }}) - Sun protection recommended
+      {% endif %}
+
+      {% if rain_prob < 20 and wind_speed < 20 and uv < 6 %}
+      ✅ **Pleasant weather conditions** - Enjoy your day!
+      {% endif %}
+
+
+# MOBILE-OPTIMIZED MINI DASHBOARD
+mobile_weather_widget:
+  type: vertical-stack
+  cards:
+    # Quick glance
+    - type: glance
+      show_name: false
+      show_state: true
+      entities:
+        - entity: weather.met_office_met_office_forecast_hourly
+          show_state: false
+        - entity: sensor.met_office_met_office_forecast_hourly_met_office_forecast_hourly_temperature
+        - entity: sensor.met_office_met_office_forecast_hourly_met_office_forecast_hourly_probability_of_precipitation
+
+    # Hourly mini forecast
+    - type: weather-forecast
+      entity: weather.met_office_met_office_forecast_hourly
+      forecast_type: hourly
+      show_current: false
+      show_forecast: true
+
+
+# =============================================================================
+# ADVANCED: Using forecast attributes in automations
+# =============================================================================
+# Example: Create sensor to check if rain is expected in next 3 hours
+
+rain_expected_template:
+  # Add this to your configuration.yaml under template: sensor:
+  - platform: template
+    sensors:
+      rain_in_next_3_hours:
+        friendly_name: "Rain Expected Soon"
+        value_template: >
+          {% set rain_prob = states('sensor.met_office_met_office_forecast_hourly_met_office_forecast_hourly_probability_of_precipitation') | int(0) %}
+          {{ 'Yes' if rain_prob > 50 else 'No' }}
+        icon_template: >
+          {% set rain_prob = states('sensor.met_office_met_office_forecast_hourly_met_office_forecast_hourly_probability_of_precipitation') | int(0) %}
+          {{ 'mdi:weather-rainy' if rain_prob > 50 else 'mdi:weather-partly-cloudy' }}
+
+
+# =============================================================================
+# AUTOMATION EXAMPLES
+# =============================================================================
+
+# Notify when rain is likely
+rain_notification_automation:
+  alias: "Weather: Rain Alert"
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.met_office_met_office_forecast_hourly_met_office_forecast_hourly_probability_of_precipitation
+      above: 70
+  condition:
+    - condition: time
+      after: "06:00:00"
+      before: "22:00:00"
+  action:
+    - service: notify.mobile_app
+      data:
+        title: "☔ Rain Expected"
+        message: >
+          High chance of rain ({{ states('sensor.met_office_met_office_forecast_hourly_met_office_forecast_hourly_probability_of_precipitation') }}%)
+          in the next hour. Temperature: {{ states('sensor.met_office_met_office_forecast_hourly_met_office_forecast_hourly_temperature') }}°C
+
+
+# Close windows when strong winds expected
+wind_warning_automation:
+  alias: "Weather: High Wind Warning"
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_wind_gust
+      above: 60
+  action:
+    - service: notify.telegram
+      data:
+        message: >
+          ⚠️ High winds expected! Wind gusts up to {{ states('sensor.met_office_met_office_forecast_daily_met_office_forecast_daily_wind_gust') }} km/h.
+          Secure outdoor furniture and close windows.
+
+
+# =============================================================================
+# CUSTOM CARD REQUIREMENTS
+# =============================================================================
+# Some cards require custom components from HACS:
+#
+# 1. ApexCharts Card (for the hourly forecast graph):
+#    - Install via HACS: https://github.com/RomRider/apexcharts-card
+#    - Or add manually to custom_components/
+#
+# 2. If cards don't render, install:
+#    - card-mod (for styling)
+#    - mini-graph-card (alternative to apexcharts)
+#
+# Without custom cards, the basic weather-forecast and entities cards
+# will still work perfectly!

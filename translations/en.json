@@ -1,29 +1,54 @@
 {
     "config": {
         "abort": {
-            "already_configured": "Service is already configured",
+            "already_configured": "This location is already configured",
             "reauth_successful": "Re-authentication was successful"
         },
         "error": {
-            "cannot_connect": "Failed to connect",
-            "invalid_auth": "Invalid authentication",
-            "unknown": "Unexpected error"
+            "cannot_connect": "Failed to connect to Met Office API",
+            "invalid_auth": "Invalid API key",
+            "unknown": "Unexpected error occurred"
         },
         "step": {
             "reauth_confirm": {
                 "data": {
-                    "api_key": "API key"
+                    "api_key": "API Key"
                 },
                 "description": "Please re-enter your DataHub API key. If you are still using an old Datapoint API key, you need to sign up for DataHub API now, see [documentation]({docs_url}) for details.",
-                "title": "Reauthenticate with DataHub API"
+                "title": "Reauthenticate with Met Office"
             },
             "user": {
                 "data": {
-                    "api_key": "API key",
+                    "api_key": "API Key",
+                    "name": "Location Name",
                     "latitude": "Latitude",
-                    "longitude": "Longitude"
+                    "longitude": "Longitude",
+                    "timesteps": "Forecast Interval",
+                    "update_interval": "Update Interval (minutes)"
                 },
-                "title": "Connect to the Met Office"
+                "data_description": {
+                    "api_key": "Your Met Office DataHub API key from datahub.metoffice.gov.uk",
+                    "timesteps": "How frequently forecast data points are provided (hourly, three-hourly, or daily)",
+                    "update_interval": "How often to fetch new data (15-360 minutes)"
+                },
+                "description": "Enter your Met Office DataHub API key and location.",
+                "title": "Set up Met Office Weather"
+            }
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "data": {
+                    "timesteps": "Forecast Interval",
+                    "update_interval": "Update Interval (minutes)"
+                },
+                "data_description": {
+                    "timesteps": "How frequently forecast data points are provided (hourly, three-hourly, or daily)",
+                    "update_interval": "How often to fetch new data (15-360 minutes). Lower values use more API calls."
+                },
+                "description": "Configure forecast and update settings.",
+                "title": "Met Office Options"
             }
         }
     }

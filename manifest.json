@@ -1,9 +1,9 @@
 {
   "domain": "weatherbitch",
   "name": "Weather Bitch",
+  "version": "0.3.0",
   "codeowners": ["@MikeyProtocolSavage"],
   "config_flow": true,
   "documentation": "https://github.com/MikeyProtocolSavage/homeassistant-metoffice",
-  "iot_class": "cloud_polling",
-  "version": "1.0.0"
+  "iot_class": "cloud_polling"
 }
